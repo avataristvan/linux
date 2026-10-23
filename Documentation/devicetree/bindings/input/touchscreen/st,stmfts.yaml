@@ -19,7 +19,9 @@ allOf:
 
 properties:
   compatible:
-    const: st,stmfts
+    enum:
+      - st,fts1a096
+      - st,stmfts
 
   reg:
     maxItems: 1

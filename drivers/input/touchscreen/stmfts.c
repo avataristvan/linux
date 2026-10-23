@@ -14,6 +14,7 @@
 #include <linux/leds.h>
 #include <linux/module.h>
 #include <linux/pm_runtime.h>
+#include <linux/property.h>
 #include <linux/regulator/consumer.h>
 
 /* I2C commands */
@@ -64,6 +65,12 @@
 #define STMFTS_MASK_KEY_MENU			0x01
 #define STMFTS_MASK_KEY_BACK			0x02
 
+/* FTS1A096 register commands (address 0xb6 0x00 <reg>, then value) */
+#define STMFTS_FTS1A096_REG_INT_ENABLE		0x1c
+#define STMFTS_FTS1A096_REG_SYSTEM_RESET	0x23
+#define STMFTS_FTS1A096_INT_ENABLE		0x41
+#define STMFTS_FTS1A096_READY_RETRIES		50
+
 #define STMFTS_EVENT_SIZE	8
 #define STMFTS_STACK_DEPTH	32
 #define STMFTS_DATA_MAX_SIZE	(STMFTS_EVENT_SIZE * STMFTS_STACK_DEPTH)
@@ -75,8 +82,17 @@ static const struct regulator_bulk_data stmfts_supplies[] = {
 	{ .supply = "avdd" },
 };
 
+struct stmfts_data;
+
+struct stmfts_chip_info {
+	int (*configure)(struct stmfts_data *sdata);
+	/* touch key codes for key status bit 0 and bit 1 */
+	unsigned short keymap[2];
+};
+
 struct stmfts_data {
 	struct i2c_client *client;
+	const struct stmfts_chip_info *chip_info;
 	struct input_dev *input;
 	struct gpio_desc *reset_gpio;
 	struct led_classdev led_cdev;
@@ -221,18 +237,20 @@ static void stmfts_report_hover_event(struct stmfts_data *sdata,
 
 static void stmfts_report_key_event(struct stmfts_data *sdata, const u8 event[])
 {
+	const unsigned short *keymap = sdata->chip_info->keymap;
+
 	switch (event[2]) {
 	case 0:
-		input_report_key(sdata->input, KEY_BACK, 0);
-		input_report_key(sdata->input, KEY_MENU, 0);
-		break;
-
-	case STMFTS_MASK_KEY_BACK:
-		input_report_key(sdata->input, KEY_BACK, 1);
+		input_report_key(sdata->input, keymap[0], 0);
+		input_report_key(sdata->input, keymap[1], 0);
 		break;
 
 	case STMFTS_MASK_KEY_MENU:
-		input_report_key(sdata->input, KEY_MENU, 1);
+		input_report_key(sdata->input, keymap[0], 1);
+		break;
+
+	case STMFTS_MASK_KEY_BACK:
+		input_report_key(sdata->input, keymap[1], 1);
 		break;
 
 	default:
@@ -583,6 +601,60 @@ static int stmfts_configure(struct stmfts_data *sdata)
 	return 0;
 }
 
+static int stmfts_fts1a096_write_reg(struct stmfts_data *sdata, u8 reg, u8 val)
+{
+	u8 buf[] = { 0xb6, 0x00, reg, val };
+	int ret;
+
+	ret = i2c_master_send(sdata->client, buf, sizeof(buf));
+	if (ret < 0)
+		return ret;
+
+	return ret == sizeof(buf) ? 0 : -EIO;
+}
+
+/*
+ * The FTS1A096 has no SYSTEM_RESET command and keeps its interrupt output
+ * disabled until told otherwise, so the reset is done through a register
+ * write and the controller ready event is polled for.
+ */
+static int stmfts_fts1a096_configure(struct stmfts_data *sdata)
+{
+	u8 event[STMFTS_EVENT_SIZE];
+	int err, i;
+
+	err = stmfts_fts1a096_write_reg(sdata,
+					STMFTS_FTS1A096_REG_SYSTEM_RESET, 0x01);
+	if (err)
+		return err;
+
+	msleep(10);
+
+	for (i = 0; i < STMFTS_FTS1A096_READY_RETRIES; i++) {
+		err = i2c_smbus_read_i2c_block_data(sdata->client,
+						    STMFTS_READ_ONE_EVENT,
+						    sizeof(event), event);
+		if (err < 0)
+			return err;
+
+		if (event[0] == STMFTS_EV_CONTROLLER_READY)
+			break;
+
+		msleep(20);
+	}
+
+	if (i == STMFTS_FTS1A096_READY_RETRIES)
+		return -ETIMEDOUT;
+
+	err = i2c_smbus_write_byte(sdata->client, STMFTS_CLEAR_EVENT_STACK);
+	if (err)
+		return err;
+
+	return stmfts_fts1a096_write_reg(sdata,
+					 STMFTS_FTS1A096_REG_INT_ENABLE,
+					 STMFTS_FTS1A096_INT_ENABLE);
+}
+
 static int stmfts_power_on(struct stmfts_data *sdata)
 {
 	int err;
@@ -609,7 +681,7 @@ static int stmfts_power_on(struct stmfts_data *sdata)
 
 	msleep(50);
 
-	err = stmfts_configure(sdata);
+	err = sdata->chip_info->configure(sdata);
 	if (err)
 		goto err_disable_irq;
 
@@ -664,6 +736,16 @@ static int stmfts_enable_led(struct stmfts_data *sdata)
 	return 0;
 }
 
+static const struct stmfts_chip_info stmfts_fts4_info = {
+	.configure = stmfts_configure,
+	.keymap = { KEY_MENU, KEY_BACK },
+};
+
+static const struct stmfts_chip_info stmfts_fts1a096_info = {
+	.configure = stmfts_fts1a096_configure,
+	.keymap = { KEY_BACK, KEY_MENU },
+};
+
 static int stmfts_probe(struct i2c_client *client)
 {
 	struct device *dev = &client->dev;
@@ -682,6 +764,9 @@ static int stmfts_probe(struct i2c_client *client)
 	i2c_set_clientdata(client, sdata);
 
 	sdata->client = client;
+	sdata->chip_info = device_get_match_data(dev);
+	if (!sdata->chip_info)
+		sdata->chip_info = &stmfts_fts4_info;
 	mutex_init(&sdata->mutex);
 	init_completion(&sdata->cmd_done);
 
@@ -718,8 +803,10 @@ static int stmfts_probe(struct i2c_client *client)
 
 	sdata->use_key = device_property_read_bool(dev, "touch-key-connected");
 	if (sdata->use_key) {
-		input_set_capability(sdata->input, EV_KEY, KEY_MENU);
-		input_set_capability(sdata->input, EV_KEY, KEY_BACK);
+		input_set_capability(sdata->input, EV_KEY,
+				     sdata->chip_info->keymap[0]);
+		input_set_capability(sdata->input, EV_KEY,
+				     sdata->chip_info->keymap[1]);
 	}
 
 	err = input_mt_init_slots(sdata->input,
@@ -830,7 +917,8 @@ static const struct dev_pm_ops stmfts_pm_ops = {
 
 #ifdef CONFIG_OF
 static const struct of_device_id stmfts_of_match[] = {
-	{ .compatible = "st,stmfts", },
+	{ .compatible = "st,stmfts", .data = &stmfts_fts4_info },
+	{ .compatible = "st,fts1a096", .data = &stmfts_fts1a096_info },
 	{ },
 };
 MODULE_DEVICE_TABLE(of, stmfts_of_match);
