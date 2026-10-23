@@ -3049,6 +3049,9 @@ pl330_probe(struct amba_device *adev, const struct amba_id *id)
 	if (IS_ERR(pl330->rstc)) {
 		return dev_err_probe(&adev->dev, PTR_ERR(pl330->rstc), "Failed to get reset!\n");
 	} else {
+		/* Exynos7870 ADMA only comes up after a reset pulse */
+		reset_control_assert(pl330->rstc);
+		udelay(100);
 		ret = reset_control_deassert(pl330->rstc);
 		if (ret) {
 			dev_err(&adev->dev, "Couldn't deassert the device from reset!\n");
