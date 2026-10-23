@@ -15,6 +15,7 @@
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/pm_runtime.h>
+#include <linux/reset.h>
 
 #include <sound/soc.h>
 #include <sound/pcm_params.h>
@@ -1390,6 +1391,7 @@ static int samsung_i2s_probe(struct platform_device *pdev)
 	const struct samsung_i2s_dai_data *i2s_dai_data;
 	const struct platform_device_id *id;
 	struct samsung_i2s_priv *priv;
+	struct reset_control *rstc;
 	struct resource *res;
 	int num_dais, ret;
 
@@ -1467,6 +1469,16 @@ static int samsung_i2s_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "failed to enable clock: %d\n", ret);
 		return ret;
 	}
+
+	/* Exynos7870 MI2S stays unusable until its sysreg reset is pulsed */
+	rstc = devm_reset_control_get_optional_exclusive(&pdev->dev, NULL);
+	if (IS_ERR(rstc)) {
+		ret = dev_err_probe(&pdev->dev, PTR_ERR(rstc), "Failed to get reset\n");
+		goto err_disable_clk;
+	}
+	reset_control_assert(rstc);
+	udelay(100);
+	reset_control_deassert(rstc);
 	pri_dai->dma_playback.addr = regs_base + I2STXD;
 	pri_dai->dma_capture.addr = regs_base + I2SRXD;
 	pri_dai->dma_playback.chan_name = "tx";

@@ -21,6 +21,23 @@ config SND_SAMSUNG_SPDIF
 config SND_SAMSUNG_I2S
 	tristate "Samsung I2S interface support"
 
+config SND_SOC_SAMSUNG_S1402X
+	tristate "Exynos7870 S1402X audio mixer"
+	select REGMAP_MMIO
+	help
+	  Minimal driver for the audio mixer between I2S0 and the external
+	  codec on Exynos7870 (AP interface only).
+
+config SND_SOC_SAMSUNG_GTAXLLTE_RT5659
+	tristate "SoC I2S Audio support for RT5659 on Galaxy Tab A 10.1 LTE"
+	depends on I2C
+	select SND_SAMSUNG_I2S
+	select SND_SOC_SAMSUNG_S1402X
+	select SND_SOC_RT5659
+	help
+	  Say Y or M if you want to add support for audio on the Samsung
+	  Galaxy Tab A 10.1 (2016) LTE, SM-T585.
+
 config SND_SOC_SAMSUNG_SMDK_WM8994
 	tristate "SoC I2S Audio support for WM8994 on SMDK"
 	depends on I2C=y
