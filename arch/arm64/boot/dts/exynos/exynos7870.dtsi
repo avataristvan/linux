@@ -8,6 +8,7 @@
 
 #include <dt-bindings/clock/samsung,exynos7870-cmu.h>
 #include <dt-bindings/interrupt-controller/arm-gic.h>
+#include <dt-bindings/sound/samsung-i2s.h>
 
 / {
 	compatible = "samsung,exynos7870";
@@ -807,6 +808,53 @@
 			clock-names = "sysmmu";
 		};
 
+		/* Audio DMA; reads as all zeroes until its reset is pulsed */
+		adma: dma-controller@14890000 {
+			compatible = "arm,pl330", "arm,primecell";
+			reg = <0x14890000 0x1000>;
+			interrupts = <GIC_SPI 73 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&cmu_dispaud CLK_GOUT_DISPAUD_APB_AUD>;
+			clock-names = "apb_pclk";
+			resets = <&dispaud_reset 3>;
+			reset-names = "dma";
+			arm,primecell-periphid = <0x00341330>;
+			#dma-cells = <1>;
+		};
+
+		/* Audio mixer between I2S0 and the external codec pins */
+		audio_mixer: audio-mixer@14880000 {
+			compatible = "samsung,exynos7870-s1402x";
+			reg = <0x14880000 0x200>;
+			clocks = <&cmu_dispaud CLK_GOUT_DISPAUD_APB_AUD>,
+				 <&cmu_dispaud CLK_GOUT_DISPAUD_MIXER_AUD_SYSCLK>;
+			clock-names = "apb", "sysclk";
+			resets = <&dispaud_reset 0>;
+			#sound-dai-cells = <0>;
+			status = "disabled";
+		};
+
+		/* Register layout matches exynos7-i2s1 ("i2s-str" downstream) */
+		i2s0: i2s@148a0000 {
+			compatible = "samsung,exynos7-i2s1";
+			reg = <0x148a0000 0x100>;
+			dmas = <&adma 0>, <&adma 2>;
+			dma-names = "tx", "rx";
+			/*
+			 * RCLK mux input 0 is PCLK (APB), input 1 the codec clock.
+			 * Input 0 gives 48.8 kHz instead of 48 kHz from AUD_PLL.
+			 */
+			clocks = <&cmu_dispaud CLK_GOUT_DISPAUD_APB_AUD>,
+				 <&cmu_dispaud CLK_GOUT_DISPAUD_APB_AUD>,
+				 <&cmu_dispaud CLK_GOUT_DISPAUD_MI2S_AUD_I2SCODCLKI>;
+			clock-names = "iis", "i2s_opclk0", "i2s_opclk1";
+			assigned-clocks = <&i2s0 CLK_I2S_RCLK_SRC>;
+			assigned-clock-parents = <&cmu_dispaud CLK_GOUT_DISPAUD_MI2S_AUD_I2SCODCLKI>;
+			resets = <&dispaud_reset 1>;
+			#clock-cells = <1>;
+			#sound-dai-cells = <1>;
+			status = "disabled";
+		};
+
 		pinctrl_dispaud: pinctrl@148c0000 {
 			compatible = "samsung,exynos7870-pinctrl";
 			reg = <0x148c0000 0x1000>;
@@ -823,6 +871,13 @@
 				 <&cmu_mif CLK_GOUT_MIF_CMU_DISPAUD_DECON_ECLK>,
 				 <&cmu_mif CLK_GOUT_MIF_CMU_DISPAUD_DECON_VCLK>;
 			clock-names = "oscclk", "bus", "decon_eclk", "decon_vclk";
+		};
+
+		/* DISPAUD_CFG soft resets: 0 mixer, 1 MI2S, 2 AMP, 3 ADMA (active high) */
+		dispaud_reset: reset-controller@148f1000 {
+			compatible = "samsung,exynos7870-dispaud-reset";
+			reg = <0x148f1000 0x4>;
+			#reset-cells = <1>;
 		};
 
 		syscon_disp: system-controller@148f100c {
