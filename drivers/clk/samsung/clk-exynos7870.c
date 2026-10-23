@@ -840,7 +840,8 @@ static const struct samsung_fixed_rate_clock dispaud_fixed_clks[] __initconst = 
 };
 
 static const struct samsung_pll_clock dispaud_pll_clks[] __initconst = {
-	PLL(pll_1417x, CLK_FOUT_DISPAUD_AUD_PLL, "fout_dispaud_aud_pll",
+	/* fractional PLL1431x (K in CON1), same layout as pll_36xx */
+	PLL(pll_36xx, CLK_FOUT_DISPAUD_AUD_PLL, "fout_dispaud_aud_pll",
 	    "oscclk", PLL_LOCKTIME_DISPAUD_AUD_PLL, PLL_CON0_DISPAUD_AUD_PLL,
 	    NULL),
 	PLL(pll_1417x, CLK_FOUT_DISPAUD_PLL, "fout_dispaud_pll", "oscclk",
