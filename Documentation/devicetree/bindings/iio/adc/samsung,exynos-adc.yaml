@@ -18,6 +18,7 @@ properties:
           - samsung,exynos3250-adc
           - samsung,exynos4212-adc                # Exynos4212 and Exynos4412
           - samsung,exynos7-adc
+          - samsung,exynos7870-adc
           - samsung,s3c6410-adc
           - samsung,s5pv210-adc
       - items:
@@ -88,6 +89,7 @@ allOf:
           contains:
             enum:
               - samsung,exynos3250-adc
+              - samsung,exynos7870-adc
     then:
       properties:
         clocks:
