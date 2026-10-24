@@ -25,6 +25,8 @@ properties:
   compatible:
     enum:
       - samsung,exynos7870-cmu-mif
+      - samsung,exynos7870-cmu-cpucl0
+      - samsung,exynos7870-cmu-cpucl1
       - samsung,exynos7870-cmu-dispaud
       - samsung,exynos7870-cmu-fsys
       - samsung,exynos7870-cmu-g3d
@@ -68,6 +70,25 @@ allOf:
         clock-names:
           items:
             - const: oscclk
+
+  - if:
+      properties:
+        compatible:
+          contains:
+            enum:
+              - samsung,exynos7870-cmu-cpucl0
+              - samsung,exynos7870-cmu-cpucl1
+    then:
+      properties:
+        clocks:
+          items:
+            - description: External reference clock (26 MHz)
+            - description: CPU cluster switch clock (from CMU_MIF)
+
+        clock-names:
+          items:
+            - const: oscclk
+            - const: switch
 
   - if:
       properties:

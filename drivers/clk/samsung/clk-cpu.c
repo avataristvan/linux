@@ -564,6 +564,157 @@ static int exynos850_cpuclk_post_rate_change(struct clk_notifier_data *ndata,
 	return exynos850_alt_parent_set_max_rate(alt_parent, 0);
 }
 
+/* ---- Exynos7870 ---------------------------------------------------------- */
+
+#define E7870_DIV_RATIO_MASK	GENMASK(2, 0)
+#define E7870_MUX_SEL		BIT(12)
+#define E7870_MUX_STAT_SHIFT	12
+#define E7870_MUX_STAT_MASK	GENMASK(1, 0)
+
+/* Max time for divider or mux to stabilize, usec */
+#define E7870_DIV_MUX_STAB_TIME	100
+/* OSCCLK clock rate, Hz */
+#define E7870_OSCCLK		(26 * MHZ)
+
+/*
+ * MUX_CPUCLx selects between the cluster PLL (0) and SWITCH_USER (1); its
+ * one-hot status is in CLK_STAT_MUX_CPUCLx. Of the cluster dividers only HPM
+ * changes with the rate (ECT dvfs table), the others stay at their boot values.
+ */
+static const struct exynos_cpuclk_regs e7870_cpuclk_regs = {
+	.mux		= 0x208,
+	.mux_stat	= 0x608,
+	.divs		= { 0x420 },
+};
+
+/*
+ * Set alternate parent rate to "rate" value or less.
+ *
+ * rate: Desired alt_parent rate, or 0 for max alt_parent rate
+ *
+ * The alternate parent (SWITCH_USER mux) is fed by the CPUCLx_SWITCH gate and
+ * divider in CMU_MIF; that divider is used to adjust the alternate parent speed.
+ */
+static int exynos7870_alt_parent_set_max_rate(const struct clk_hw *alt_parent,
+					      unsigned long rate)
+{
+	struct clk_hw *clk_gate, *clk_div, *clk_divp;
+	unsigned long divp_rate, div;
+	int ret;
+
+	/* Gate and divider from CMU_MIF, and the divider's parent */
+	clk_gate = clk_hw_get_parent(alt_parent);
+	if (!clk_gate)
+		return -ENOENT;
+	clk_div = clk_hw_get_parent(clk_gate);
+	if (!clk_div)
+		return -ENOENT;
+	clk_divp = clk_hw_get_parent(clk_div);
+	if (!clk_divp)
+		return -ENOENT;
+	divp_rate = clk_hw_get_rate(clk_divp);
+	if (!divp_rate)
+		return -EINVAL;
+
+	/* Calculate new alt_parent rate for integer divider value */
+	if (rate == 0)
+		div = 1;
+	else
+		div = DIV_ROUND_UP(divp_rate, rate);
+	WARN_ON(div > 4);
+
+	ret = clk_set_rate(clk_div->clk, DIV_ROUND_UP(divp_rate, div));
+	if (ret)
+		return ret;
+	udelay(E7870_DIV_MUX_STAB_TIME);
+
+	return 0;
+}
+
+static void exynos7870_cpuclk_select(struct exynos_cpuclk *cpuclk, bool alt)
+{
+	const struct exynos_cpuclk_regs * const regs = cpuclk->chip->regs;
+	void __iomem *base = cpuclk->base;
+	u32 mux_reg;
+
+	mux_reg = readl(base + regs->mux);
+	if (alt)
+		mux_reg |= E7870_MUX_SEL;
+	else
+		mux_reg &= ~E7870_MUX_SEL;
+	writel(mux_reg, base + regs->mux);
+	wait_until_mux_stable(base + regs->mux_stat, E7870_MUX_STAT_SHIFT,
+			      E7870_MUX_STAT_MASK, alt ? 2 : 1);
+}
+
+/* Handler for pre-rate change notification from parent clock */
+static int exynos7870_cpuclk_pre_rate_change(struct clk_notifier_data *ndata,
+					     struct exynos_cpuclk *cpuclk)
+{
+	const struct exynos_cpuclk_regs * const regs = cpuclk->chip->regs;
+	const struct exynos_cpuclk_cfg_data *cfg_data = cpuclk->cfg;
+	const struct clk_hw *alt_parent = cpuclk->alt_parent;
+	void __iomem *base = cpuclk->base;
+	unsigned long alt_prate = clk_hw_get_rate(alt_parent);
+	unsigned long flags;
+	u32 val;
+	int ret;
+
+	/* No actions are needed when switching to or from OSCCLK parent */
+	if (ndata->new_rate == E7870_OSCCLK || ndata->old_rate == E7870_OSCCLK)
+		return 0;
+
+	/* Find out the divider values to use for clock data */
+	while ((cfg_data->prate * 1000) != ndata->new_rate) {
+		if (cfg_data->prate == 0)
+			return -EINVAL;
+		cfg_data++;
+	}
+
+	/*
+	 * The cluster runs from the alternate parent while the PLL relocks, at
+	 * the voltage of the slower of the old and new rate: keep it below both.
+	 */
+	if (alt_prate > ndata->old_rate || alt_prate > ndata->new_rate) {
+		ret = exynos7870_alt_parent_set_max_rate(alt_parent,
+				min(ndata->old_rate, ndata->new_rate));
+		if (ret)
+			return ret;
+	}
+
+	spin_lock_irqsave(cpuclk->lock, flags);
+
+	exynos7870_cpuclk_select(cpuclk, true);
+
+	/* Alternate parent is active now. Set the HPM divider */
+	val = readl(base + regs->divs[0]);
+	val = (val & ~E7870_DIV_RATIO_MASK) | cfg_data->div0;
+	writel(val, base + regs->divs[0]);
+
+	spin_unlock_irqrestore(cpuclk->lock, flags);
+
+	return 0;
+}
+
+/* Handler for post-rate change notification from parent clock */
+static int exynos7870_cpuclk_post_rate_change(struct clk_notifier_data *ndata,
+					      struct exynos_cpuclk *cpuclk)
+{
+	const struct clk_hw *alt_parent = cpuclk->alt_parent;
+	unsigned long flags;
+
+	/* No actions are needed when switching to or from OSCCLK parent */
+	if (ndata->new_rate == E7870_OSCCLK || ndata->old_rate == E7870_OSCCLK)
+		return 0;
+
+	spin_lock_irqsave(cpuclk->lock, flags);
+	exynos7870_cpuclk_select(cpuclk, false);
+	spin_unlock_irqrestore(cpuclk->lock, flags);
+
+	/* Set alt_parent rate back to max */
+	return exynos7870_alt_parent_set_max_rate(alt_parent, 0);
+}
+
 /* -------------------------------------------------------------------------- */
 
 /* Common round rate callback usable for all types of CPU clocks */
@@ -637,6 +788,11 @@ static const struct exynos_cpuclk_chip exynos_clkcpu_chips[] = {
 		.regs		= &e850cl1_cpuclk_regs,
 		.pre_rate_cb	= exynos850_cpuclk_pre_rate_change,
 		.post_rate_cb	= exynos850_cpuclk_post_rate_change,
+	},
+	[CPUCLK_LAYOUT_E7870] = {
+		.regs		= &e7870_cpuclk_regs,
+		.pre_rate_cb	= exynos7870_cpuclk_pre_rate_change,
+		.post_rate_cb	= exynos7870_cpuclk_post_rate_change,
 	},
 };
 
