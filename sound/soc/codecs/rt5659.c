@@ -2340,6 +2340,45 @@ static const struct snd_kcontrol_new pdm_r_switch =
 	SOC_DAPM_SINGLE("Switch", RT5659_PDM_OUT_CTRL, RT5659_M_PDM1_R_SFT, 1,
 		1);
 
+/*
+ * As the vendor driver: keep the stereo1 ADC muted while the mic bias, boost
+ * and ADC filters settle, else every capture starts with a pop. The vendor's
+ * 100 ms leave a ~50 ms decaying offset from the headset mic here.
+ */
+static unsigned int adc_power_delay = 200;
+module_param(adc_power_delay, uint, 0644);
+MODULE_PARM_DESC(adc_power_delay, "ms to keep the ADC muted after power-up");
+
+/*
+ * On both channels, as either may power up alone (one mic path in use). When
+ * both power up together, DAPM runs both events and then unmutes them in one
+ * write, so the second event skips the wait the first just did. Power-down
+ * clears that, so a quick close and reopen still waits.
+ */
+static int rt5659_adc_depop_event(struct snd_soc_dapm_widget *w,
+	struct snd_kcontrol *kcontrol, int event)
+{
+	struct snd_soc_component *component =
+		snd_soc_dapm_to_component(w->dapm);
+	struct rt5659_priv *rt5659 = snd_soc_component_get_drvdata(component);
+
+	switch (event) {
+	case SND_SOC_DAPM_PRE_PMU:
+		if (rt5659->adc_depop_done &&
+		    time_before(jiffies, rt5659->adc_depop_done +
+				msecs_to_jiffies(50)))
+			break;
+		msleep(adc_power_delay);
+		rt5659->adc_depop_done = jiffies;
+		break;
+	case SND_SOC_DAPM_POST_PMD:
+		rt5659->adc_depop_done = 0;
+		break;
+	}
+
+	return 0;
+}
+
 static int rt5659_spk_event(struct snd_soc_dapm_widget *w,
 	struct snd_kcontrol *kcontrol, int event)
 {
@@ -2617,10 +2656,12 @@ static const struct snd_soc_dapm_widget rt5659_dapm_widgets[] = {
 	SND_SOC_DAPM_PGA("IF1_ADC4", SND_SOC_NOPM, 0, 0, NULL, 0),
 	SND_SOC_DAPM_PGA("Stereo2 ADC LR", SND_SOC_NOPM, 0, 0, NULL, 0),
 
-	SND_SOC_DAPM_PGA("Stereo1 ADC Volume L", RT5659_STO1_ADC_DIG_VOL,
-		RT5659_L_MUTE_SFT, 1, NULL, 0),
-	SND_SOC_DAPM_PGA("Stereo1 ADC Volume R", RT5659_STO1_ADC_DIG_VOL,
-		RT5659_R_MUTE_SFT, 1, NULL, 0),
+	SND_SOC_DAPM_PGA_S("Stereo1 ADC Volume L", 1, RT5659_STO1_ADC_DIG_VOL,
+		RT5659_L_MUTE_SFT, 1, rt5659_adc_depop_event,
+		SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
+	SND_SOC_DAPM_PGA_S("Stereo1 ADC Volume R", 1, RT5659_STO1_ADC_DIG_VOL,
+		RT5659_R_MUTE_SFT, 1, rt5659_adc_depop_event,
+		SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
 
 	/* Digital Interface */
 	SND_SOC_DAPM_SUPPLY("I2S1", RT5659_PWR_DIG_1, RT5659_PWR_I2S1_BIT,

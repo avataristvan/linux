@@ -1813,6 +1813,8 @@ struct rt5659_priv {
 	int jack_type;
 	bool hda_hp_plugged;
 	bool hda_mic_plugged;
+
+	unsigned long adc_depop_done;
 };
 
 int rt5659_set_jack_detect(struct snd_soc_component *component,
