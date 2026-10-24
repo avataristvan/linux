@@ -74,56 +74,72 @@
 			device_type = "cpu";
 			compatible = "arm,cortex-a53";
 			reg = <0x0>;
+			clocks = <&cmu_cpucl0 CLK_CLUSTER0_SCLK>;
 			enable-method = "psci";
+			#cooling-cells = <2>;
 		};
 
 		cpu1: cpu@1 {
 			device_type = "cpu";
 			compatible = "arm,cortex-a53";
 			reg = <0x1>;
+			clocks = <&cmu_cpucl0 CLK_CLUSTER0_SCLK>;
 			enable-method = "psci";
+			#cooling-cells = <2>;
 		};
 
 		cpu2: cpu@2 {
 			device_type = "cpu";
 			compatible = "arm,cortex-a53";
 			reg = <0x2>;
+			clocks = <&cmu_cpucl0 CLK_CLUSTER0_SCLK>;
 			enable-method = "psci";
+			#cooling-cells = <2>;
 		};
 
 		cpu3: cpu@3 {
 			device_type = "cpu";
 			compatible = "arm,cortex-a53";
 			reg = <0x3>;
+			clocks = <&cmu_cpucl0 CLK_CLUSTER0_SCLK>;
 			enable-method = "psci";
+			#cooling-cells = <2>;
 		};
 
 		cpu4: cpu@100 {
 			device_type = "cpu";
 			compatible = "arm,cortex-a53";
 			reg = <0x100>;
+			clocks = <&cmu_cpucl1 CLK_CLUSTER1_SCLK>;
 			enable-method = "psci";
+			#cooling-cells = <2>;
 		};
 
 		cpu5: cpu@101 {
 			device_type = "cpu";
 			compatible = "arm,cortex-a53";
 			reg = <0x101>;
+			clocks = <&cmu_cpucl1 CLK_CLUSTER1_SCLK>;
 			enable-method = "psci";
+			#cooling-cells = <2>;
 		};
 
 		cpu6: cpu@102 {
 			device_type = "cpu";
 			compatible = "arm,cortex-a53";
 			reg = <0x102>;
+			clocks = <&cmu_cpucl1 CLK_CLUSTER1_SCLK>;
 			enable-method = "psci";
+			#cooling-cells = <2>;
 		};
 
 		cpu7: cpu@103 {
 			device_type = "cpu";
 			compatible = "arm,cortex-a53";
 			reg = <0x103>;
+			clocks = <&cmu_cpucl1 CLK_CLUSTER1_SCLK>;
 			enable-method = "psci";
+			#cooling-cells = <2>;
 		};
 	};
 
@@ -150,6 +166,16 @@
 			compatible = "samsung,exynos7870-chipid",
 				     "samsung,exynos4210-chipid";
 			reg = <0x10100000 0x100>;
+		};
+
+		tmu: tmu@10130000 {
+			compatible = "samsung,exynos7870-tmu";
+			reg = <0x10130000 0x200>;
+			interrupts = <GIC_SPI 435 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&cmu_peri CLK_GOUT_PERI_SFRIF_TMU_CPUCL0_PCLK>,
+				 <&cmu_peri CLK_GOUT_PERI_TMU_CPUCL0_CLK>;
+			clock-names = "tmu_apbif", "tmu_sclk";
+			#thermal-sensor-cells = <0>;
 		};
 
 		cmu_peri: clock-controller@101f0000 {
@@ -236,6 +262,45 @@
 			compatible = "samsung,exynos7870-pinctrl";
 			reg = <0x10530000 0x1000>;
 			interrupts = <GIC_SPI 392 IRQ_TYPE_LEVEL_HIGH>;
+		};
+
+		adc: adc@10550000 {
+			compatible = "samsung,exynos7870-adc";
+			reg = <0x10550000 0x100>;
+			interrupts = <GIC_SPI 395 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&cmu_mif CLK_GOUT_MIF_WRAP_ADC_IF_PCLK_S0>,
+				 <&cmu_mif CLK_GOUT_MIF_WRAP_ADC_IF_OSC_SYS>;
+			clock-names = "adc", "sclk";
+			#io-channel-cells = <1>;
+			status = "disabled";
+		};
+
+		cmu_cpucl1: clock-controller@10800000 {
+			compatible = "samsung,exynos7870-cmu-cpucl1";
+			reg = <0x10800000 0x1000>;
+			#clock-cells = <1>;
+
+			clocks = <&oscclk>,
+				 <&cmu_mif CLK_GOUT_MIF_CMU_CPUCL1_SWITCH>;
+			clock-names = "oscclk", "switch";
+
+			/* Alternate CPU parent while the cluster PLL relocks */
+			assigned-clocks = <&cmu_cpucl1 CLK_MOUT_CPUCL1_SWITCH_USER>;
+			assigned-clock-parents = <&cmu_mif CLK_GOUT_MIF_CMU_CPUCL1_SWITCH>;
+		};
+
+		cmu_cpucl0: clock-controller@10900000 {
+			compatible = "samsung,exynos7870-cmu-cpucl0";
+			reg = <0x10900000 0x1000>;
+			#clock-cells = <1>;
+
+			clocks = <&oscclk>,
+				 <&cmu_mif CLK_GOUT_MIF_CMU_CPUCL0_SWITCH>;
+			clock-names = "oscclk", "switch";
+
+			/* Alternate CPU parent while the cluster PLL relocks */
+			assigned-clocks = <&cmu_cpucl0 CLK_MOUT_CPUCL0_SWITCH_USER>;
+			assigned-clock-parents = <&cmu_mif CLK_GOUT_MIF_CMU_CPUCL0_SWITCH>;
 		};
 
 		gpu: gpu@11400000 {
@@ -898,6 +963,34 @@
 		 * configure CNTFRQ_EL0
 		 */
 		clock-frequency = <26000000>;
+	};
+
+	thermal-zones {
+		soc_thermal: soc-thermal {
+			polling-delay-passive = <250>;
+			polling-delay = <1000>;
+			thermal-sensors = <&tmu>;
+
+			trips {
+				soc_alert0: soc-alert0 {
+					temperature = <81000>;
+					hysteresis = <2000>;
+					type = "passive";
+				};
+
+				soc_alert1: soc-alert1 {
+					temperature = <91000>;
+					hysteresis = <2000>;
+					type = "passive";
+				};
+
+				soc_crit: soc-crit {
+					temperature = <115000>;
+					hysteresis = <0>;
+					type = "critical";
+				};
+			};
+		};
 	};
 };
 
