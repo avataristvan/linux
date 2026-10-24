@@ -2722,10 +2722,10 @@ static const struct snd_soc_dapm_widget rt5659_dapm_widgets[] = {
 		rt5659_mono_dac_l_mix, ARRAY_SIZE(rt5659_mono_dac_l_mix)),
 	SND_SOC_DAPM_MIXER("Mono DAC MIXR", SND_SOC_NOPM, 0, 0,
 		rt5659_mono_dac_r_mix, ARRAY_SIZE(rt5659_mono_dac_r_mix)),
-	SND_SOC_DAPM_MUX("DAC MIXL", SND_SOC_NOPM, 0, 0,
-		&rt5659_dig_dac_mixl_mux),
-	SND_SOC_DAPM_MUX("DAC MIXR", SND_SOC_NOPM, 0, 0,
-		&rt5659_dig_dac_mixr_mux),
+	SND_SOC_DAPM_MUX("DAC MIXL", RT5659_DIG_MIXER, RT5659_M_DAC_MIX_L_SFT,
+		1, &rt5659_dig_dac_mixl_mux),
+	SND_SOC_DAPM_MUX("DAC MIXR", RT5659_DIG_MIXER, RT5659_M_DAC_MIX_R_SFT,
+		1, &rt5659_dig_dac_mixr_mux),
 
 	/* DACs */
 	SND_SOC_DAPM_SUPPLY_S("DAC L1 Power", 1, RT5659_PWR_DIG_1,
@@ -3667,6 +3667,9 @@ static int rt5659_probe(struct snd_soc_component *component)
 
 	rt5659->component = component;
 
+	/* rt5659_remove() resets the chip; write the cached setup back */
+	regcache_sync(rt5659->regmap);
+
 	switch (rt5659->pdata.jd_src) {
 	case RT5659_JD_HDA_HEADER:
 		break;
@@ -3686,6 +3689,8 @@ static void rt5659_remove(struct snd_soc_component *component)
 	struct rt5659_priv *rt5659 = snd_soc_component_get_drvdata(component);
 
 	regmap_write(rt5659->regmap, RT5659_RESET, 0);
+	/* The chip is at its defaults now, the cache is not */
+	regcache_mark_dirty(rt5659->regmap);
 }
 
 #ifdef CONFIG_PM
