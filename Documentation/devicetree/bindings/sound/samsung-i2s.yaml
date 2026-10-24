@@ -126,6 +126,9 @@ properties:
   power-domains:
     maxItems: 1
 
+  resets:
+    maxItems: 1
+
   "#sound-dai-cells":
     const: 1
 

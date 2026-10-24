@@ -88,13 +88,35 @@ properties:
     description: Specify which JD source be used.
     default: 0
 
-  realtek,ldo1-en-gpios:
+  realtek,in1-differential:
+    type: boolean
+    description: IN1 is a differential input.
+
+  realtek,in3-differential:
+    type: boolean
+    description: IN3 is a differential input.
+
+  realtek,in4-differential:
+    type: boolean
+    description: IN4 is a differential input.
+
+  ldo1-en-gpios:
     maxItems: 1
     description: CODEC's LDO1_EN pin.
 
-  realtek,reset-gpios:
+  reset-gpios:
     maxItems: 1
     description: CODEC's RESET pin.
+
+  realtek,ldo1-en-gpios:
+    maxItems: 1
+    deprecated: true
+    description: CODEC's LDO1_EN pin. Not read by the driver, use ldo1-en-gpios.
+
+  realtek,reset-gpios:
+    maxItems: 1
+    deprecated: true
+    description: CODEC's RESET pin. Not read by the driver, use reset-gpios.
 
   ports:
     $ref: /schemas/graph.yaml#/properties/ports
@@ -106,7 +128,6 @@ properties:
 required:
   - compatible
   - reg
-  - interrupts
 
 unevaluatedProperties: false
 

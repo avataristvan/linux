@@ -1,0 +1,65 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/sound/samsung,exynos7870-s1402x.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Samsung Exynos7870 S1402X audio mixer
+
+maintainers:
+  - Istvan Lovas <avataristvan@googlemail.com>
+
+description:
+  Audio mixer in the Exynos7870 DISPAUD block. It sits between the I2S
+  controller and the external codec pins and exposes one DAI for the
+  application processor stream.
+
+allOf:
+  - $ref: dai-common.yaml#
+
+properties:
+  compatible:
+    const: samsung,exynos7870-s1402x
+
+  reg:
+    maxItems: 1
+
+  clocks:
+    items:
+      - description: APB bus clock
+      - description: Mixer system clock
+
+  clock-names:
+    items:
+      - const: apb
+      - const: sysclk
+
+  resets:
+    maxItems: 1
+
+  '#sound-dai-cells':
+    const: 0
+
+required:
+  - compatible
+  - reg
+  - clocks
+  - clock-names
+  - resets
+  - '#sound-dai-cells'
+
+unevaluatedProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/clock/samsung,exynos7870-cmu.h>
+
+    audio-mixer@14880000 {
+        compatible = "samsung,exynos7870-s1402x";
+        reg = <0x14880000 0x200>;
+        clocks = <&cmu_dispaud CLK_GOUT_DISPAUD_APB_AUD>,
+                 <&cmu_dispaud CLK_GOUT_DISPAUD_MIXER_AUD_SYSCLK>;
+        clock-names = "apb", "sysclk";
+        resets = <&dispaud_reset 0>;
+        #sound-dai-cells = <0>;
+    };
