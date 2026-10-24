@@ -11,7 +11,6 @@
  */
 
 #include <linux/bitfield.h>
-#include <linux/devm-helpers.h>
 #include <linux/gpio/consumer.h>
 #include <linux/i2c.h>
 #include <linux/iio/consumer.h>
@@ -103,6 +102,11 @@ static int charge_start = SM5703_CHARGE_START_DEFAULT;
 module_param(charge_start, int, 0444);
 MODULE_PARM_DESC(charge_start, "Resume charging at this battery percentage (default 75)");
 
+/* Test aid: shifts the temperature the zones see, not the reported one */
+static int temp_offset;
+module_param(temp_offset, int, 0644);
+MODULE_PARM_DESC(temp_offset, "Debug: add this many 0.1 C to the battery temperature for the zones (default 0)");
+
 struct sm5703_chg_limits {
 	int input_ua;
 	int charge_ua;
@@ -143,6 +147,7 @@ struct sm5703_charger {
 	enum power_supply_usb_type usb_type;
 	enum sm5703_zone	zone;
 	int			temp;	/* 0.1 C */
+	bool			temp_valid;
 	bool			limited;
 	int			input_ua;
 	int			charge_ua;
@@ -265,7 +270,8 @@ static void sm5703_chg_poll(struct work_struct *work)
 	enum sm5703_zone zone;
 	union power_supply_propval cap;
 	unsigned int st5;
-	int temp = chg->temp, capacity = -1, mdeg, ret;
+	int temp = chg->temp, capacity = -1, offset = READ_ONCE(temp_offset);
+	int mdeg, ret;
 
 	ret = regmap_read(chg->regmap, SM5703_REG_STATUS5, &st5);
 	if (!ret)
@@ -283,7 +289,7 @@ static void sm5703_chg_poll(struct work_struct *work)
 		zone = SM5703_ZONE_HOT;
 	} else {
 		temp = DIV_ROUND_CLOSEST(mdeg, 100);
-		zone = sm5703_chg_zone(chg->zone, temp);
+		zone = sm5703_chg_zone(chg->zone, temp + offset);
 	}
 
 	/* The fuel gauge loads first, but do not depend on it */
@@ -312,9 +318,9 @@ static void sm5703_chg_poll(struct work_struct *work)
 			dev_info(chg->dev, "battery temperature unknown: %s\n",
 				 sm5703_zone_names[zone]);
 		else
-			dev_info(chg->dev, "battery temperature %s%d.%d C: %s\n",
+			dev_info(chg->dev, "battery temperature %s%d.%d C%s: %s\n",
 				 temp < 0 ? "-" : "", abs(temp) / 10, abs(temp) % 10,
-				 sm5703_zone_names[zone]);
+				 offset ? " (debug offset)" : "", sm5703_zone_names[zone]);
 	}
 
 	ret = sm5703_chg_apply(chg, type, zone);
@@ -333,6 +339,7 @@ static void sm5703_chg_poll(struct work_struct *work)
 	chg->usb_type = type;
 	chg->zone = zone;
 	chg->temp = temp;
+	chg->temp_valid = temp_ok;
 	chg->limited = limited;
 
 	mutex_unlock(&chg->lock);
@@ -438,7 +445,10 @@ static int sm5703_chg_get_property(struct power_supply *psy,
 		val->intval = chg->usb_type;
 		break;
 	case POWER_SUPPLY_PROP_TEMP:
-		val->intval = chg->temp;
+		if (chg->temp_valid)
+			val->intval = chg->temp;
+		else
+			ret = -ENODATA;
 		break;
 	case POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT:
 		ret = sm5703_chg_read_field(chg, SM5703_REG_VBUSCNTL,
@@ -499,6 +509,7 @@ static int sm5703_chg_set_property(struct power_supply *psy,
 
 	mutex_unlock(&chg->lock);
 
+	/* A no-op once the stop action has disabled the work */
 	if (!ret)
 		mod_delayed_work(system_percpu_wq, &chg->poll_work, 0);
 
@@ -616,6 +627,14 @@ static void sm5703_chg_put_fg_psy(void *data)
 		power_supply_put(chg->fg_psy);
 }
 
+/* Runs before the psy unregister: a threshold write must not requeue the poll */
+static void sm5703_chg_stop(void *data)
+{
+	struct sm5703_charger *chg = data;
+
+	disable_delayed_work_sync(&chg->poll_work);
+}
+
 static const struct regmap_config sm5703_chg_regmap_config = {
 	.reg_bits	= 8,
 	.val_bits	= 8,
@@ -637,6 +656,7 @@ static int sm5703_chg_probe(struct i2c_client *client)
 	chg->dev = dev;
 	chg->usb_type = POWER_SUPPLY_USB_TYPE_UNKNOWN;
 	mutex_init(&chg->lock);
+	INIT_DELAYED_WORK(&chg->poll_work, sm5703_chg_poll);
 
 	if (charge_end < 1 || charge_end > 100 ||
 	    charge_start < 0 || charge_start >= charge_end) {
@@ -689,12 +709,12 @@ static int sm5703_chg_probe(struct i2c_client *client)
 		return dev_err_probe(dev, PTR_ERR(chg->psy),
 				     "Failed to register power supply\n");
 
-	/* Registered before the work, so the work is cancelled before the put */
+	/* Registered before the stop, so the work is cancelled before the put */
 	ret = devm_add_action_or_reset(dev, sm5703_chg_put_fg_psy, chg);
 	if (ret)
 		return ret;
 
-	ret = devm_delayed_work_autocancel(dev, &chg->poll_work, sm5703_chg_poll);
+	ret = devm_add_action_or_reset(dev, sm5703_chg_stop, chg);
 	if (ret)
 		return ret;
 
