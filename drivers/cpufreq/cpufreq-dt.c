@@ -251,6 +251,22 @@ static int dt_cpufreq_early_init(struct device *dev, int cpu)
 		goto out;
 	}
 
+	/*
+	 * Apply the boot OPP once, so the voltage request of this CPU group is
+	 * registered before another group sharing the regulator lowers it.
+	 */
+	if (reg_name[0]) {
+		struct clk *cpu_clk = clk_get(cpu_dev, NULL);
+
+		if (!IS_ERR(cpu_clk)) {
+			ret = dev_pm_opp_set_rate(cpu_dev, clk_get_rate(cpu_clk));
+			if (ret)
+				dev_warn(cpu_dev, "failed to apply boot OPP: %d\n",
+					 ret);
+			clk_put(cpu_clk);
+		}
+	}
+
 	list_add(&priv->node, &priv_list);
 	return 0;
 
