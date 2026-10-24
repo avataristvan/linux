@@ -96,6 +96,11 @@
 		compatible = "samsung,gtaxllte-audio";
 		model = "SM-T585";
 
+		/* Combo jack insertion, as downstream sec_jack detect-gpio */
+		hp-det-gpios = <&gpa0 5 GPIO_ACTIVE_LOW>;
+		pinctrl-0 = <&jack_det>;
+		pinctrl-names = "default";
+
 		audio-routing = "Headphone", "HPOL",
 				"Headphone", "HPOR",
 				"Speaker", "SPOL",
@@ -525,6 +530,13 @@
 
 	hall_irq: hall-irq-pins {
 		samsung,pins = "gpa1-3";
+		samsung,pin-function = <EXYNOS_PIN_FUNC_EINT>;
+		samsung,pin-pud = <EXYNOS_PIN_PULL_NONE>;
+		samsung,pin-drv = <EXYNOS5433_PIN_DRV_FAST_SR1>;
+	};
+
+	jack_det: jack-det-pins {
+		samsung,pins = "gpa0-5";
 		samsung,pin-function = <EXYNOS_PIN_FUNC_EINT>;
 		samsung,pin-pud = <EXYNOS_PIN_PULL_NONE>;
 		samsung,pin-drv = <EXYNOS5433_PIN_DRV_FAST_SR1>;

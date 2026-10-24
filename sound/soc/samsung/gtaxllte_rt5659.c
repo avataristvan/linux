@@ -11,6 +11,7 @@
 #include <linux/platform_device.h>
 #include <linux/slab.h>
 
+#include <sound/jack.h>
 #include <sound/pcm_params.h>
 #include <sound/soc.h>
 
@@ -26,6 +27,10 @@
 static unsigned int codec_bfs;
 module_param(codec_bfs, uint, 0644);
 MODULE_PARM_DESC(codec_bfs, "codec PLL1 source: 0 = MCLK, 32/64 = BCLK1 ratio");
+
+static bool jack_switch = true;
+module_param(jack_switch, bool, 0444);
+MODULE_PARM_DESC(jack_switch, "switch outputs and mics on jack insertion (else report only)");
 
 static int gtaxllte_hw_params(struct snd_pcm_substream *substream,
 			      struct snd_pcm_hw_params *params)
@@ -94,6 +99,55 @@ static int gtaxllte_hw_params(struct snd_pcm_substream *substream,
 }
 
 /*
+ * Combo jack insertion on a GPIO only (downstream sec_jack: gpa0-5, active
+ * low). 3-/4-pole and the buttons need the ADC, which mainline lacks for the
+ * 7870, so a plug is taken as a headset: with plain headphones the headset
+ * mic just records silence.
+ */
+static struct snd_soc_jack gtaxllte_jack;
+
+static struct snd_soc_jack_pin gtaxllte_jack_pins[] = {
+	{ .pin = "Headphone", .mask = SND_JACK_HEADPHONE },
+	{ .pin = "Headset Mic", .mask = SND_JACK_MICROPHONE },
+	{ .pin = "Speaker", .mask = SND_JACK_HEADPHONE, .invert = 1 },
+	{ .pin = "Main Mic", .mask = SND_JACK_MICROPHONE, .invert = 1 },
+};
+
+static struct snd_soc_jack_gpio gtaxllte_jack_gpio = {
+	.name = "hp-det",
+	.report = SND_JACK_HEADSET,
+	.debounce_time = 200,
+};
+
+static int gtaxllte_jack_init(struct snd_soc_card *card)
+{
+	struct snd_soc_dapm_context *dapm = snd_soc_card_to_dapm(card);
+	int ret;
+
+	if (jack_switch) {
+		ret = snd_soc_card_jack_new_pins(card, "Headset Jack",
+						 SND_JACK_HEADSET, &gtaxllte_jack,
+						 gtaxllte_jack_pins,
+						 ARRAY_SIZE(gtaxllte_jack_pins));
+	} else {
+		/* Headphones and main mic; the pin switches pick the rest */
+		ret = snd_soc_dapm_disable_pin(dapm, "Headset Mic");
+		if (ret)
+			return ret;
+		ret = snd_soc_dapm_disable_pin(dapm, "Speaker");
+		if (ret)
+			return ret;
+		ret = snd_soc_card_jack_new(card, "Headset Jack",
+					    SND_JACK_HEADSET, &gtaxllte_jack);
+	}
+	if (ret)
+		return ret;
+
+	gtaxllte_jack_gpio.gpiod_dev = card->dev;
+	return snd_soc_jack_add_gpios(&gtaxllte_jack, 1, &gtaxllte_jack_gpio);
+}
+
+/*
  * The 26 MHz MCLK is not synchronous to the I2S clocks, so like the vendor
  * (ASRC_2 = 0x1001 under Lineage) run the stereo DAC and ADC filters through
  * the I2S1 ASRC; rt5659 powers the ASRC widgets itself once these are set.
@@ -125,17 +179,7 @@ static int gtaxllte_link_init(struct snd_soc_pcm_runtime *rtd)
 	if (ret < 0)
 		return ret;
 
-	/*
-	 * Headphones and main mic by default; there is no jack detection yet,
-	 * so switch with "Speaker"/"Headphone"/"Main Mic"/"Headset Mic Switch".
-	 */
-	ret = snd_soc_dapm_disable_pin(snd_soc_card_to_dapm(rtd->card),
-				       "Headset Mic");
-	if (ret < 0)
-		return ret;
-
-	return snd_soc_dapm_disable_pin(snd_soc_card_to_dapm(rtd->card),
-					"Speaker");
+	return gtaxllte_jack_init(rtd->card);
 }
 
 /*
@@ -159,12 +203,13 @@ static const struct {
 	{ "HPO L Playback Switch", false, 1 },
 	{ "HPO R Playback Switch", false, 1 },
 	/*
-	 * Mics as Lineage records them: main IN3 -> BST3, headset IN1 -> BST1,
-	 * both -> RECMIX1 -> ADC1; the mic pin switches pick the active one.
+	 * Mics as Lineage records them (main IN3 -> BST3, headset IN1 -> BST1,
+	 * -> RECMIX1 -> ADC1), but one mono mic per channel instead of both
+	 * summed: left = main mic, right = headset mic, as fixed tracks.
 	 */
 	{ "RECMIX1L BST3 Switch", false, 1 },
-	{ "RECMIX1R BST3 Switch", false, 1 },
-	{ "RECMIX1L BST1 Switch", false, 1 },
+	{ "RECMIX1R BST3 Switch", false, 0 },
+	{ "RECMIX1L BST1 Switch", false, 0 },
 	{ "RECMIX1R BST1 Switch", false, 1 },
 	{ "Stereo1 ADC Source", true, 0 },	/* ADC1 */
 	{ "Stereo1 ADC1 Source", true, 1 },	/* ADC */
