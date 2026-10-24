@@ -929,6 +929,24 @@ config BATTERY_GOLDFISH
 	  driver. Originated in the Android Studio Emulator (goldfish) it is
 	  going to be used in other emulators.
 
+config BATTERY_SM5703
+	tristate "Silicon Mitus SM5703 fuel gauge support"
+	depends on I2C
+	select REGMAP_I2C
+	help
+	  Say Y here to enable read-only support for the fuel gauge in the
+	  Silicon Mitus SM5703 PMIC (voltage, current and state of charge).
+
+config CHARGER_SM5703
+	tristate "Silicon Mitus SM5703 charger support"
+	depends on I2C && OF && IIO
+	select REGMAP_I2C
+	help
+	  Say Y here to enable the charger in the Silicon Mitus SM5703 PMIC.
+	  It sets the charge limits per cable type, read from the SM5703
+	  MUIC, and limits charging by the battery temperature read from an
+	  IIO channel (the battery NTC).
+
 config BATTERY_RT5033
 	tristate "RT5033 fuel gauge support"
 	depends on I2C

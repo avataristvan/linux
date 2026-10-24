@@ -1,0 +1,71 @@
+# SPDX-License-Identifier: (GPL-2.0 OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/power/supply/siliconmitus,sm5703-charger.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Silicon Mitus SM5703 PMIC Charger
+
+maintainers:
+  - Istvan Lovas <avataristvan@googlemail.com>
+
+description:
+  The charger block of the SM5703 PMIC. The cable type is read from the
+  SM5703 MUIC, which sits on another I2C bus and is referenced by phandle;
+  the battery temperature comes from an IIO channel (the battery NTC).
+
+allOf:
+  - $ref: power-supply.yaml#
+
+properties:
+  compatible:
+    const: siliconmitus,sm5703-charger
+
+  reg:
+    maxItems: 1
+
+  interrupts:
+    maxItems: 1
+
+  enable-gpios:
+    maxItems: 1
+    description: nCHG_EN pin of the charger
+
+  siliconmitus,muic:
+    $ref: /schemas/types.yaml#/definitions/phandle
+    description: SM5703 MUIC node, read for the cable type
+
+  io-channels:
+    maxItems: 1
+    description: battery temperature channel
+
+  io-channel-names:
+    const: batt-temp
+
+required:
+  - compatible
+  - reg
+  - enable-gpios
+  - siliconmitus,muic
+  - io-channels
+  - io-channel-names
+
+unevaluatedProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/gpio/gpio.h>
+
+    i2c {
+      #address-cells = <1>;
+      #size-cells = <0>;
+
+      charger@49 {
+        compatible = "siliconmitus,sm5703-charger";
+        reg = <0x49>;
+        enable-gpios = <&gpd1 3 GPIO_ACTIVE_LOW>;
+        siliconmitus,muic = <&muic>;
+        io-channels = <&battery_ntc>;
+        io-channel-names = "batt-temp";
+      };
+    };
