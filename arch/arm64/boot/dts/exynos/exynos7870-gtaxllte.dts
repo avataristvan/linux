@@ -99,7 +99,13 @@
 		audio-routing = "Headphone", "HPOL",
 				"Headphone", "HPOR",
 				"Speaker", "SPOL",
-				"Speaker", "SPOR";
+				"Speaker", "SPOR",
+				"IN3P", "Main Mic",
+				"IN3N", "Main Mic",
+				"Main Mic", "MICBIAS2",
+				"IN1P", "Headset Mic",
+				"IN1N", "Headset Mic",
+				"Headset Mic", "MICBIAS1";
 
 		cpu {
 			sound-dai = <&i2s0 0>;

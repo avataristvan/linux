@@ -9,6 +9,7 @@
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
+#include <linux/slab.h>
 
 #include <sound/pcm_params.h>
 #include <sound/soc.h>
@@ -94,16 +95,121 @@ static int gtaxllte_hw_params(struct snd_pcm_substream *substream,
 
 /*
  * The 26 MHz MCLK is not synchronous to the I2S clocks, so like the vendor
- * (ASRC_2 = 0x1001 under Lineage) run the stereo DAC filter through the
- * I2S1 ASRC; rt5659 powers the ASRC widget itself once this field is set.
+ * (ASRC_2 = 0x1001 under Lineage) run the stereo DAC and ADC filters through
+ * the I2S1 ASRC; rt5659 powers the ASRC widgets itself once these are set.
  */
 static int gtaxllte_link_init(struct snd_soc_pcm_runtime *rtd)
 {
 	struct snd_soc_component *codec = snd_soc_rtd_to_codec(rtd, 1)->component;
+	int ret;
 
-	return snd_soc_component_update_bits(codec, RT5659_ASRC_2,
-					     RT5659_DA_STO_T_MASK,
-					     1 << RT5659_DA_STO_T_SFT);
+	ret = snd_soc_component_update_bits(codec, RT5659_ASRC_2,
+					    RT5659_DA_STO_T_MASK |
+					    RT5659_AD_STO1_T_MASK,
+					    1 << RT5659_DA_STO_T_SFT |
+					    1 << RT5659_AD_STO1_T_SFT);
+	if (ret < 0)
+		return ret;
+
+	/* DAC1 at -20 dB (122 of 175) instead of 0 dB, to spare the ears */
+	ret = snd_soc_component_update_bits(codec, RT5659_DAC1_DIG_VOL,
+					    0xffff, 0x7a7a);
+	if (ret < 0)
+		return ret;
+
+	/*
+	 * As the vendor init list: without this the combo jack's mic contact
+	 * stays disconnected from IN1 and the headset mic records silence.
+	 */
+	ret = snd_soc_component_write(codec, RT5659_EJD_CTRL_1, 0x70c0);
+	if (ret < 0)
+		return ret;
+
+	/*
+	 * Headphones and main mic by default; there is no jack detection yet,
+	 * so switch with "Speaker"/"Headphone"/"Main Mic"/"Headset Mic Switch".
+	 */
+	ret = snd_soc_dapm_disable_pin(snd_soc_card_to_dapm(rtd->card),
+				       "Headset Mic");
+	if (ret < 0)
+		return ret;
+
+	return snd_soc_dapm_disable_pin(snd_soc_card_to_dapm(rtd->card),
+					"Speaker");
+}
+
+/*
+ * Default routing as Lineage sets it for both headphones and speaker:
+ * DAC1 -> Stereo DAC Mixer (L1 to left, R1 to right) -> DAC L1/R1
+ * (STO_DAC_MIXER 0x2a8a, A_DAC_MUX 0x000c); the speaker stays silent with
+ * the analog DAC fed from DAC1 directly. These are DAPM controls: DAPM reads
+ * a mixer path's state only when the codec routes are added, so a plain
+ * register write in the link init leaves the path disconnected. Set them
+ * through the controls once the card exists, so DAPM updates its paths.
+ */
+static const struct {
+	const char *name;
+	bool is_enum;
+	unsigned int val;
+} gtaxllte_defaults[] = {
+	{ "Stereo DAC MIXL DAC L1 Switch", false, 1 },
+	{ "Stereo DAC MIXR DAC R1 Switch", false, 1 },
+	{ "DAC L1 Source", true, 1 },	/* Stereo DAC Mixer */
+	{ "DAC R1 Source", true, 1 },
+	{ "HPO L Playback Switch", false, 1 },
+	{ "HPO R Playback Switch", false, 1 },
+	/*
+	 * Mics as Lineage records them: main IN3 -> BST3, headset IN1 -> BST1,
+	 * both -> RECMIX1 -> ADC1; the mic pin switches pick the active one.
+	 */
+	{ "RECMIX1L BST3 Switch", false, 1 },
+	{ "RECMIX1R BST3 Switch", false, 1 },
+	{ "RECMIX1L BST1 Switch", false, 1 },
+	{ "RECMIX1R BST1 Switch", false, 1 },
+	{ "Stereo1 ADC Source", true, 0 },	/* ADC1 */
+	{ "Stereo1 ADC1 Source", true, 1 },	/* ADC */
+	{ "Stereo1 ADC MIXL ADC1 Switch", false, 1 },
+	{ "Stereo1 ADC MIXR ADC1 Switch", false, 1 },
+	{ "IN3 Boost Volume", false, 53 },
+	{ "IN1 Boost Volume", false, 53 },
+};
+
+static int gtaxllte_set_defaults(struct snd_soc_card *card)
+{
+	struct snd_ctl_elem_value *uc;
+	struct snd_kcontrol *kctl;
+	int i, ret = 0;
+
+	uc = kzalloc(sizeof(*uc), GFP_KERNEL);
+	if (!uc)
+		return -ENOMEM;
+
+	for (i = 0; i < ARRAY_SIZE(gtaxllte_defaults); i++) {
+		kctl = snd_soc_card_get_kcontrol(card, gtaxllte_defaults[i].name);
+		if (!kctl) {
+			dev_err(card->dev, "missing control %s\n",
+				gtaxllte_defaults[i].name);
+			ret = -ENOENT;
+			break;
+		}
+
+		memset(uc, 0, sizeof(*uc));
+		if (gtaxllte_defaults[i].is_enum)
+			uc->value.enumerated.item[0] = gtaxllte_defaults[i].val;
+		else
+			uc->value.integer.value[0] = gtaxllte_defaults[i].val;
+
+		ret = kctl->put(kctl, uc);
+		if (ret < 0) {
+			dev_err(card->dev, "failed to set %s: %d\n",
+				gtaxllte_defaults[i].name, ret);
+			break;
+		}
+		ret = 0;
+	}
+
+	kfree(uc);
+	return ret;
 }
 
 static const struct snd_soc_ops gtaxllte_ops = {
@@ -113,11 +219,15 @@ static const struct snd_soc_ops gtaxllte_ops = {
 static const struct snd_soc_dapm_widget gtaxllte_widgets[] = {
 	SND_SOC_DAPM_HP("Headphone", NULL),
 	SND_SOC_DAPM_SPK("Speaker", NULL),
+	SND_SOC_DAPM_MIC("Main Mic", NULL),
+	SND_SOC_DAPM_MIC("Headset Mic", NULL),
 };
 
 static const struct snd_kcontrol_new gtaxllte_controls[] = {
 	SOC_DAPM_PIN_SWITCH("Headphone"),
 	SOC_DAPM_PIN_SWITCH("Speaker"),
+	SOC_DAPM_PIN_SWITCH("Main Mic"),
+	SOC_DAPM_PIN_SWITCH("Headset Mic"),
 };
 
 SND_SOC_DAILINK_DEFS(primary,
@@ -195,6 +305,11 @@ static int gtaxllte_probe(struct platform_device *pdev)
 		dev_err_probe(dev, ret, "failed to register card\n");
 		goto put_codecs;
 	}
+
+	/* Not fatal: the card works, userspace can still set the routing */
+	ret = gtaxllte_set_defaults(card);
+	if (ret)
+		dev_warn(dev, "default routing not set: %d\n", ret);
 
 	return 0;
 
