@@ -124,7 +124,8 @@
 
 	/*
 	 * Battery NTC on ADC channel 1. Table from the downstream gtaxllte
-	 * battery DT (temp_table_adc/_data), reversed: falling ADC values.
+	 * battery DT (temp_table_adc/_data), reversed: falling ADC values,
+	 * converted from raw codes to mV (the ADC scale is vdd / 4095).
 	 */
 	battery_ntc: thermal-sensor-battery {
 		compatible = "generic-adc-thermal";
@@ -133,29 +134,29 @@
 		io-channels = <&adc 1>;
 		io-channel-names = "sensor-channel";
 		temperature-lookup-table = <
-			(-20000) 3551
-			(-15000) 3431
-			(-10000) 3284
-			(-5000) 3141
-			0 2964
-			5000 2782
-			10000 2586
-			15000 2392
-			20000 2196
-			25000 2002
-			30000 1816
-			35000 1648
-			40000 1476
-			45000 1310
-			50000 1177
-			55000 1067
-			60000 940
-			65000 838
-			70000 746
-			75000 676
-			80000 581
-			85000 500
-			90000 430>;
+			(-20000) 1561
+			(-15000) 1508
+			(-10000) 1444
+			(-5000) 1381
+			0 1303
+			5000 1223
+			10000 1137
+			15000 1051
+			20000 965
+			25000 880
+			30000 798
+			35000 724
+			40000 649
+			45000 576
+			50000 517
+			55000 469
+			60000 413
+			65000 368
+			70000 328
+			75000 297
+			80000 255
+			85000 220
+			90000 189>;
 	};
 
 	thermal-zones {
@@ -715,6 +716,9 @@
 
 /* Battery NTC on channel 1, VBAT divider on channel 3 (downstream io-channels) */
 &adc {
+	/* Not in the downstream DT; LDO3 (1.8 V, always-on) as on other Exynos boards */
+	vdd-supply = <&vdd_ldo3>;
+
 	status = "okay";
 };
 
