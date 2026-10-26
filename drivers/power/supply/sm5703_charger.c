@@ -91,16 +91,16 @@
 #define SM5703_POLL_MS			5000
 
 #define SM5703_FG_NAME			"sm5703-fuel-gauge"
-#define SM5703_CHARGE_END_DEFAULT	80
-#define SM5703_CHARGE_START_DEFAULT	75
+#define SM5703_CHARGE_END_DEFAULT	100
+#define SM5703_CHARGE_START_DEFAULT	0
 
 static int charge_end = SM5703_CHARGE_END_DEFAULT;
 module_param(charge_end, int, 0444);
-MODULE_PARM_DESC(charge_end, "Stop charging at this battery percentage, 100 disables the limit (default 80)");
+MODULE_PARM_DESC(charge_end, "Stop charging at this battery percentage, 100 disables the limit (default 100)");
 
 static int charge_start = SM5703_CHARGE_START_DEFAULT;
 module_param(charge_start, int, 0444);
-MODULE_PARM_DESC(charge_start, "Resume charging at this battery percentage (default 75)");
+MODULE_PARM_DESC(charge_start, "Resume charging at this battery percentage (default 0)");
 
 /* Test aid: shifts the temperature the zones see, not the reported one */
 static int temp_offset;
@@ -136,7 +136,6 @@ struct sm5703_charger {
 	struct regmap		*regmap;
 	struct i2c_client	*muic;
 	struct iio_channel	*temp_chan;
-	struct power_supply	*fg_psy;
 	struct gpio_desc	*enable_gpio;
 	struct power_supply	*psy;
 	struct delayed_work	poll_work;
@@ -269,6 +268,7 @@ static void sm5703_chg_poll(struct work_struct *work)
 	bool changed, online = false, limited, temp_ok;
 	enum sm5703_zone zone;
 	union power_supply_propval cap;
+	struct power_supply *fg_psy;
 	unsigned int st5;
 	int temp = chg->temp, capacity = -1, offset = READ_ONCE(temp_offset);
 	int mdeg, ret;
@@ -292,12 +292,16 @@ static void sm5703_chg_poll(struct work_struct *work)
 		zone = sm5703_chg_zone(chg->zone, temp + offset);
 	}
 
-	/* The fuel gauge loads first, but do not depend on it */
-	if (!chg->fg_psy)
-		chg->fg_psy = power_supply_get_by_name(SM5703_FG_NAME);
-	if (chg->fg_psy &&
-	    !power_supply_get_property(chg->fg_psy, POWER_SUPPLY_PROP_CAPACITY, &cap))
-		capacity = cap.intval;
+	/*
+	 * Do not depend on the fuel gauge, and do not hold it between polls:
+	 * a held reference trips power_supply_unregister() when it goes away.
+	 */
+	fg_psy = power_supply_get_by_name(SM5703_FG_NAME);
+	if (fg_psy) {
+		if (!power_supply_get_property(fg_psy, POWER_SUPPLY_PROP_CAPACITY, &cap))
+			capacity = cap.intval;
+		power_supply_put(fg_psy);
+	}
 
 	mutex_lock(&chg->lock);
 
@@ -619,14 +623,6 @@ static void sm5703_chg_put_client(void *client)
 	put_device(&((struct i2c_client *)client)->dev);
 }
 
-static void sm5703_chg_put_fg_psy(void *data)
-{
-	struct sm5703_charger *chg = data;
-
-	if (chg->fg_psy)
-		power_supply_put(chg->fg_psy);
-}
-
 /* Runs before the psy unregister: a threshold write must not requeue the poll */
 static void sm5703_chg_stop(void *data)
 {
@@ -708,11 +704,6 @@ static int sm5703_chg_probe(struct i2c_client *client)
 	if (IS_ERR(chg->psy))
 		return dev_err_probe(dev, PTR_ERR(chg->psy),
 				     "Failed to register power supply\n");
-
-	/* Registered before the stop, so the work is cancelled before the put */
-	ret = devm_add_action_or_reset(dev, sm5703_chg_put_fg_psy, chg);
-	if (ret)
-		return ret;
 
 	ret = devm_add_action_or_reset(dev, sm5703_chg_stop, chg);
 	if (ret)
