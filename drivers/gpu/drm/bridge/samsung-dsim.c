@@ -620,6 +620,7 @@ static const struct samsung_dsim_driver_data exynos7870_dsi_driver_data = {
 	.plltmr_reg = 0xa0,
 	.has_clklane_stop = 1,
 	.has_sfrctrl = 1,
+	.has_porch_in_pixels = 1,
 	.clk_data = exynos7870_clk_bulk_data,
 	.num_clks = ARRAY_SIZE(exynos7870_clk_bulk_data),
 	.max_freq = 1500,
@@ -1194,17 +1195,30 @@ static void samsung_dsim_set_display_mode(struct samsung_dsim *dsi)
 	u32 reg;
 
 	if (dsi->mode_flags & MIPI_DSI_MODE_VIDEO) {
-		u64 byte_clk = dsi->hs_clock / 8;
-		u64 pix_clk = m->clock * 1000;
+		int hfp, hbp, hsa;
 
-		int hfp = DIV64_U64_ROUND_UP((m->hsync_start - m->hdisplay) * byte_clk, pix_clk);
-		int hbp = DIV64_U64_ROUND_UP((m->htotal - m->hsync_end) * byte_clk, pix_clk);
-		int hsa = DIV64_U64_ROUND_UP((m->hsync_end - m->hsync_start) * byte_clk, pix_clk);
+		/*
+		 * Exynos7870 expects the horizontal porches in pixel clocks;
+		 * converting them to byte clocks shrinks HSA to almost nothing
+		 * and corrupts the start of every line.
+		 */
+		if (dsi->driver_data->has_porch_in_pixels) {
+			hfp = m->hsync_start - m->hdisplay;
+			hbp = m->htotal - m->hsync_end;
+			hsa = m->hsync_end - m->hsync_start;
+		} else {
+			u64 byte_clk = dsi->hs_clock / 8;
+			u64 pix_clk = m->clock * 1000;
 
-		/* remove packet overhead when possible */
-		hfp = max(hfp - 6, 0);
-		hbp = max(hbp - 6, 0);
-		hsa = max(hsa - 6, 0);
+			hfp = DIV64_U64_ROUND_UP((m->hsync_start - m->hdisplay) * byte_clk, pix_clk);
+			hbp = DIV64_U64_ROUND_UP((m->htotal - m->hsync_end) * byte_clk, pix_clk);
+			hsa = DIV64_U64_ROUND_UP((m->hsync_end - m->hsync_start) * byte_clk, pix_clk);
+
+			/* remove packet overhead when possible */
+			hfp = max(hfp - 6, 0);
+			hbp = max(hbp - 6, 0);
+			hsa = max(hsa - 6, 0);
+		}
 
 		dev_dbg(dsi->dev, "calculated hfp: %u, hbp: %u, hsa: %u",
 			hfp, hbp, hsa);
