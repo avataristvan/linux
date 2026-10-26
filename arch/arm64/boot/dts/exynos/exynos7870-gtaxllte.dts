@@ -18,6 +18,7 @@
 
 	aliases {
 		mmc0 = &mmc0;
+		mmc1 = &mmc1;
 		mmc2 = &mmc2;
 		serial0 = &serial0;
 		serial1 = &serial1;
@@ -366,6 +367,40 @@
 		};
 	};
 
+	/* WLAN_EN, mmc1 */
+	pwrseq_mmc1: pwrseq-mmc1 {
+		compatible = "mmc-pwrseq-simple";
+		reset-gpios = <&gpd3 6 GPIO_ACTIVE_LOW>;
+	};
+
+	/*
+	 * 32.768 kHz sleep clock of the QCA9377 BT part. Presumably the PMIC
+	 * 32 kHz output, which S-Boot leaves running and mainline does not
+	 * model for the S2MPU05; the binding requires a clock phandle.
+	 */
+	bt_sleep_clk: clock-bt-sleep {
+		compatible = "fixed-clock";
+		clock-frequency = <32768>;
+		#clock-cells = <0>;
+	};
+
+	/* WLAN and BT DCDC enable, mmc1: vmmc */
+	vdd_fixed_wlan: regulator-fixed-wlan {
+		compatible = "regulator-fixed";
+		regulator-name = "cnss_dcdc_en";
+		regulator-max-microvolt = <3300000>;
+		regulator-min-microvolt = <3300000>;
+		gpio = <&gpa0 6 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		startup-delay-us = <4000>;
+		/*
+		 * Shared by WiFi and BT: mmc1 power cycles (ath10k hif power
+		 * down/up) must not cut BT, and the WiFi chip fails to come
+		 * back (-ETIME) when the DCDC drops. Downstream keeps it on too.
+		 */
+		regulator-always-on;
+	};
+
 	/* mmc2: vmmc */
 	vdd_fixed_mmc2: regulator-fixed-mmc2 {
 		compatible = "regulator-fixed";
@@ -396,6 +431,21 @@
 		enable-active-high;
 	};
 
+	/*
+	 * panel: vdd, external buck. Always on: it keeps the bootloader
+	 * framebuffer visible until the panel driver (a module) takes over.
+	 */
+	vdd_fixed_lcd: regulator-fixed-lcd {
+		compatible = "regulator-fixed";
+		regulator-name = "vdd_fixed_lcd";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		gpio = <&gpd3 4 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		regulator-boot-on;
+		regulator-always-on;
+	};
+
 	reserved-memory {
 		ranges;
 		#address-cells = <2>;
@@ -409,8 +459,9 @@
 			pmsg-size = <0x4000>;
 		};
 
-		framebuffer@67000000 {
+		cont_splash_mem: framebuffer@67000000 {
 			reg = <0x0 0x67000000 (1200 * 1920 * 4)>;
+			iommu-addresses = <&decon 0x67000000 (1200 * 1920 * 4)>;
 			no-map;
 		};
 	};
@@ -479,6 +530,35 @@
 			cooling-device = <&cpu0 4 11>, <&cpu4 4 11>;
 		};
 	};
+};
+
+&decon {
+	memory-region = <&cont_splash_mem>;
+
+	status = "okay";
+};
+
+&dsi {
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	samsung,burst-clock-frequency = <980000000>;
+	samsung,esc-clock-frequency = <16000000>;
+	samsung,pll-clock-frequency = <26000000>;
+
+	status = "okay";
+
+	panel@0 {
+		compatible = "samsung,gtaxllte-boe-hx8279d";
+		reg = <0>;
+		reset-gpios = <&gpd4 1 GPIO_ACTIVE_LOW>;
+		iovcc-supply = <&vdd_ldo35>;
+		vdd-supply = <&vdd_fixed_lcd>;
+	};
+};
+
+&gpu {
+	status = "okay";
 };
 
 &hsi2c0 {
@@ -688,11 +768,16 @@
 				regulator-always-on;
 			};
 
-			/* sensors: 2.8V */
+			/*
+			 * sensors: 2.8V. Always on as downstream (vdd-alwayson):
+			 * the cm3323 driver takes no supply.
+			 */
 			vdd_ldo33: ldo33 {
 				regulator-name = "vdd_ldo33";
 				regulator-min-microvolt = <2800000>;
 				regulator-max-microvolt = <2800000>;
+				regulator-boot-on;
+				regulator-always-on;
 			};
 
 			/* camera: I/O 1.8V */
@@ -816,6 +901,42 @@
 	};
 };
 
+/* I2C_SENSOR1 (downstream i2c@138D0000) */
+&i2c7 {
+	samsung,i2c-sda-delay = <100>;
+	samsung,i2c-max-bus-freq = <400000>;
+
+	status = "okay";
+
+	/*
+	 * Downstream k2hh: axis map x,y,z = 0,1,2 and only z negated. The
+	 * driver output is in the Android frame (x right, y up, z out of the
+	 * screen, panel is portrait-native), the same frame the mount matrix
+	 * maps to. To be verified on hardware, see docs/sensors-test-plan-2026-10-27.md.
+	 */
+	accelerometer@1d {
+		compatible = "st,lis2hh12";
+		reg = <0x1d>;
+		interrupt-parent = <&gpa0>;
+		interrupts = <7 IRQ_TYPE_EDGE_RISING>;
+
+		pinctrl-0 = <&acc_int>;
+		pinctrl-names = "default";
+
+		vdd-supply = <&vdd_ldo33>;
+		vddio-supply = <&vdd_ldo3>;
+
+		mount-matrix = "1", "0", "0",
+			       "0", "1", "0",
+			       "0", "0", "-1";
+	};
+
+	light-sensor@10 {
+		compatible = "capella,cm3323";
+		reg = <0x10>;
+	};
+};
+
 &i2s0 {
 	status = "okay";
 };
@@ -834,6 +955,26 @@
 	samsung,dw-mshc-ciu-div = <3>;
 	samsung,dw-mshc-sdr-timing = <0 4>;
 	samsung,dw-mshc-ddr-timing = <2 4>;
+
+	status = "okay";
+};
+
+&mmc1 {
+	pinctrl-0 = <&sd1_clk &sd1_cmd &sd1_bus1 &sd1_bus4>;
+	pinctrl-names = "default";
+
+	mmc-pwrseq = <&pwrseq_mmc1>;
+	vmmc-supply = <&vdd_fixed_wlan>;
+
+	bus-width = <4>;
+	fifo-depth = <64>;
+	non-removable;
+	cap-sd-highspeed;
+	cap-sdio-irq;
+
+	samsung,dw-mshc-ciu-div = <3>;
+	samsung,dw-mshc-sdr-timing = <0 3>;
+	samsung,dw-mshc-ddr-timing = <1 2>;
 
 	status = "okay";
 };
@@ -864,6 +1005,13 @@
 };
 
 &pinctrl_alive {
+	acc_int: acc-int-pins {
+		samsung,pins = "gpa0-7";
+		samsung,pin-function = <EXYNOS_PIN_FUNC_EINT>;
+		samsung,pin-pud = <EXYNOS_PIN_PULL_NONE>;
+		samsung,pin-drv = <EXYNOS5433_PIN_DRV_FAST_SR1>;
+	};
+
 	dwmmc2_irq: dwmmc2-irq-pins {
 		samsung,pins = "gpa0-1";
 		samsung,pin-function = <EXYNOS_PIN_FUNC_EINT>;
@@ -938,6 +1086,12 @@
 };
 
 &pinctrl_top {
+	bt_en: bt-en-pins {
+		samsung,pins = "gpd4-0";
+		samsung,pin-function = <EXYNOS_PIN_FUNC_OUTPUT>;
+		samsung,pin-pud = <EXYNOS_PIN_PULL_DOWN>;
+	};
+
 	codec_gpio: codec-gpio-pins {
 		samsung,pins = "gpd3-2", "gpd3-3";
 		samsung,pin-function = <EXYNOS_PIN_FUNC_OUTPUT>;
@@ -954,6 +1108,23 @@
 
 	assigned-clocks = <&pmu_system_controller 0>;
 	assigned-clock-parents = <&oscclk>;
+};
+
+/* UART_BTWIFIFM (downstream serial_0 @13810000): QCA9377 Bluetooth HCI */
+&serial1 {
+	uart-has-rtscts;
+
+	status = "okay";
+
+	bluetooth {
+		compatible = "qcom,qca9377-bt";
+		clocks = <&bt_sleep_clk>;
+		enable-gpios = <&gpd4 0 GPIO_ACTIVE_HIGH>;
+		pinctrl-0 = <&bt_en>;
+		pinctrl-names = "default";
+		/* cnss_dcdc_en, shared with WiFi and held on by mmc1; hci_qca does not manage it for ROME */
+		vddio-supply = <&vdd_fixed_wlan>;
+	};
 };
 
 &serial2 {
