@@ -1,0 +1,62 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/display/panel/samsung,gtaxllte-boe-hx8279d.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Samsung Galaxy Tab A 10.1 (2016) LTE (SM-T585) HX8279-D DSI panel
+
+maintainers:
+  - Istvan Lovas <avataristvan@googlemail.com>
+
+description:
+  1200x1920 MIPI-DSI video mode panel of the Samsung Galaxy Tab A 10.1 (2016)
+  LTE (SM-T585, gtaxllte), driven by a Himax HX8279-D. The panel ID reported
+  by the bootloader is 0x827903, the "BOE2" variant of the downstream kernel.
+  The vendor and model of the panel itself are unknown, hence the board based
+  compatible. The brightness is set through a DSI register, there is no
+  separate backlight device.
+
+allOf:
+  - $ref: panel-common.yaml#
+
+properties:
+  compatible:
+    const: samsung,gtaxllte-boe-hx8279d
+
+  reg:
+    maxItems: 1
+
+  iovcc-supply:
+    description: I/O voltage supply (1.8 V)
+
+  vdd-supply:
+    description: Panel power supply (external buck, enabled by a GPIO)
+
+required:
+  - compatible
+  - reg
+  - reset-gpios
+  - iovcc-supply
+  - vdd-supply
+
+unevaluatedProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/gpio/gpio.h>
+
+    dsi {
+        #address-cells = <1>;
+        #size-cells = <0>;
+
+        panel@0 {
+            compatible = "samsung,gtaxllte-boe-hx8279d";
+            reg = <0>;
+            reset-gpios = <&gpd4 1 GPIO_ACTIVE_LOW>;
+            iovcc-supply = <&vdd_ldo35>;
+            vdd-supply = <&vdd_fixed_lcd>;
+        };
+    };
+
+...
