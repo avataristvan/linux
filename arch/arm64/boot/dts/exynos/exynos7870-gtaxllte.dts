@@ -814,6 +814,7 @@
 	fuel_gauge: fuel-gauge@71 {
 		compatible = "siliconmitus,sm5703-fuel-gauge";
 		reg = <0x71>;
+		power-supplies = <&charger>;
 	};
 };
 
@@ -860,7 +861,7 @@
 &i2c4 {
 	status = "okay";
 
-	charger@49 {
+	charger: charger@49 {
 		compatible = "siliconmitus,sm5703-charger";
 		reg = <0x49>;
 		enable-gpios = <&gpd1 3 GPIO_ACTIVE_LOW>;
