@@ -70,6 +70,7 @@ struct decon_context {
 	void __iomem			*regs;
 	unsigned long			irq_flags;
 	bool				i80_if;
+	bool				start_pending;
 	wait_queue_head_t		wait_vsync_queue;
 	atomic_t			wait_vsync_event;
 
@@ -245,11 +246,10 @@ static void decon_commit(struct exynos_drm_crtc *crtc)
 	writel(mode->vdisplay - 1, ctx->regs + LINECNT_OP_THRESHOLD);
 
 	/*
-	 * fields of register with prefix '_F' would be updated
-	 * at vsync(same as dma start)
+	 * Video output is started from decon_atomic_flush(), once the
+	 * encoder/bridge chain and the panel are enabled.
 	 */
-	val = VIDCON0_ENVID | VIDCON0_ENVID_F;
-	writel(val, ctx->regs + VIDCON0);
+	ctx->start_pending = true;
 
 	clkdiv = decon_calc_clkdiv(ctx, mode);
 	if (clkdiv > 1) {
@@ -519,6 +519,25 @@ static void decon_atomic_flush(struct exynos_drm_crtc *crtc)
 
 	for (i = 0; i < WINDOWS_NR; i++)
 		decon_shadow_protect_win(ctx, i, false);
+
+	/*
+	 * Start the video output only after the DSI host and the panel have
+	 * been enabled: a running pixel stream during the panel's LP command
+	 * sequence hangs the Exynos7870 DSIM and with it the SoC.
+	 * Fields of registers with the '_F' suffix are updated at vsync
+	 * (same as DMA start).
+	 */
+	if (ctx->start_pending) {
+		u32 val;
+
+		ctx->start_pending = false;
+		writel(VIDCON0_ENVID | VIDCON0_ENVID_F, ctx->regs + VIDCON0);
+
+		val = readl(ctx->regs + DECON_UPDATE);
+		val |= DECON_UPDATE_STANDALONE_F;
+		writel(val, ctx->regs + DECON_UPDATE);
+	}
+
 	exynos_crtc_handle_event(crtc);
 }
 
