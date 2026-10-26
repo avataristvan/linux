@@ -904,6 +904,18 @@ config DRM_PANEL_SAMSUNG_AMS639RQ08
 	  Say Y or M here if you want to enable support for the
 	  Samsung AMS639RQ08 FHD Plus (2340x1080@60Hz) CMD mode panel.
 
+config DRM_PANEL_SAMSUNG_GTAXLLTE_HX8279D
+	tristate "Samsung Galaxy Tab A 10.1 (2016) LTE HX8279-D DSI panel"
+	depends on OF
+	depends on GPIOLIB
+	depends on REGULATOR
+	depends on DRM_MIPI_DSI
+	depends on BACKLIGHT_CLASS_DEVICE
+	help
+	  Say Y here if you want to enable support for the 1200x1920 MIPI-DSI
+	  video mode panel (Himax HX8279-D driver IC, brightness through a
+	  DSI register) of the Samsung Galaxy Tab A 10.1 (2016) LTE, SM-T585.
+
 config DRM_PANEL_SAMSUNG_S6E88A0_AMS427AP24
 	tristate "Samsung AMS427AP24 panel with S6E88A0 controller"
 	depends on GPIOLIB && OF && REGULATOR
