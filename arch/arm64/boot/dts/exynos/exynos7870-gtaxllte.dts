@@ -472,6 +472,17 @@
 			pmsg-size = <0x4000>;
 		};
 
+		/*
+		 * Without the SysMMU, exynos-drm buffers are contiguous: GNOME
+		 * needs several 1200x1920 buffers (9 MiB each) at once.
+		 */
+		linux,cma {
+			compatible = "shared-dma-pool";
+			reusable;
+			size = <0x8000000>;
+			linux,cma-default;
+		};
+
 		cont_splash_mem: framebuffer@67000000 {
 			reg = <0x0 0x67000000 (1200 * 1920 * 4)>;
 			iommu-addresses = <&decon 0x67000000 (1200 * 1920 * 4)>;
@@ -924,10 +935,9 @@
 	status = "okay";
 
 	/*
-	 * Downstream k2hh: axis map x,y,z = 0,1,2 and only z negated. The
-	 * driver output is in the Android frame (x right, y up, z out of the
-	 * screen, panel is portrait-native), the same frame the mount matrix
-	 * maps to. To be verified on hardware, see docs/sensors-test-plan-2026-10-27.md.
+	 * Downstream k2hh negates only z; on hardware x and y are negated as
+	 * well: iio-sensor-proxy reports normal, right-up and face-up for the
+	 * upright, Home-right landscape and flat tablet with this matrix.
 	 */
 	accelerometer@1d {
 		compatible = "st,lis2hh12";
@@ -941,8 +951,8 @@
 		vdd-supply = <&vdd_ldo33>;
 		vddio-supply = <&vdd_ldo3>;
 
-		mount-matrix = "1", "0", "0",
-			       "0", "1", "0",
+		mount-matrix = "-1", "0", "0",
+			       "0", "-1", "0",
 			       "0", "0", "-1";
 	};
 
