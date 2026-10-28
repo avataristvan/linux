@@ -42,6 +42,19 @@
 		};
 	};
 
+	/* Values from the downstream gtaxllte battery DT (hw_rev 05) */
+	battery: battery {
+		compatible = "simple-battery";
+		device-chemistry = "lithium-ion";
+		charge-full-design-microamp-hours = <7300000>;
+		/* Downstream powers off at 3.40 V */
+		voltage-min-design-microvolt = <3400000>;
+		/* 4.35 V cell, charged to 4.30 V */
+		voltage-max-design-microvolt = <4350000>;
+		constant-charge-voltage-max-microvolt = <4300000>;
+		charge-term-current-microamp = <375000>;
+	};
+
 	gpio-hall-effect-sensor {
 		compatible = "gpio-keys";
 		label = "GPIO Hall Effect Sensor";
@@ -814,6 +827,7 @@
 	fuel_gauge: fuel-gauge@71 {
 		compatible = "siliconmitus,sm5703-fuel-gauge";
 		reg = <0x71>;
+		monitored-battery = <&battery>;
 		power-supplies = <&charger>;
 	};
 };
