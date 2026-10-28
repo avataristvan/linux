@@ -12,6 +12,7 @@
 
 #include <linux/devm-helpers.h>
 #include <linux/i2c.h>
+#include <linux/math64.h>
 #include <linux/module.h>
 #include <linux/power_supply.h>
 #include <linux/regmap.h>
@@ -67,17 +68,65 @@ static int sm5703_fg_read_fixed(struct sm5703_fg *fg, unsigned int reg,
 	return 0;
 }
 
-static int sm5703_fg_get_capacity(struct sm5703_fg *fg, int *val)
+/* State of charge in 1/256 percent: bits 15:8 integer, 7:0 fraction */
+static int sm5703_fg_read_soc(struct sm5703_fg *fg, unsigned int *soc)
 {
-	unsigned int word;
 	int ret;
 
-	ret = regmap_read(fg->regmap, SM5703_FG_REG_SOC, &word);
+	ret = regmap_read(fg->regmap, SM5703_FG_REG_SOC, soc);
 	if (ret)
 		return ret;
 
-	/* Bits 15:8 integer percent, 7:0 fraction */
-	*val = clamp(word >> 8, 0U, 100U);
+	*soc = min(*soc, 100U * 256);
+
+	return 0;
+}
+
+static int sm5703_fg_get_capacity(struct sm5703_fg *fg, int *val)
+{
+	unsigned int soc;
+	int ret;
+
+	ret = sm5703_fg_read_soc(fg, &soc);
+	if (ret)
+		return ret;
+
+	*val = soc >> 8;
+
+	return 0;
+}
+
+/*
+ * The gauge's learned full capacity is not read, so the full charge is the
+ * design capacity from the monitored-battery node.
+ */
+static int sm5703_fg_get_charge_full(struct power_supply *psy, int *val)
+{
+	struct power_supply_battery_info *info = psy->battery_info;
+
+	if (!info || info->charge_full_design_uah <= 0)
+		return -ENODATA;
+
+	*val = info->charge_full_design_uah;
+
+	return 0;
+}
+
+static int sm5703_fg_get_charge_now(struct sm5703_fg *fg,
+				    struct power_supply *psy, int *val)
+{
+	unsigned int soc;
+	int full, ret;
+
+	ret = sm5703_fg_get_charge_full(psy, &full);
+	if (ret)
+		return ret;
+
+	ret = sm5703_fg_read_soc(fg, &soc);
+	if (ret)
+		return ret;
+
+	*val = div_u64((u64)full * soc, 100 * 256);
 
 	return 0;
 }
@@ -165,6 +214,10 @@ static int sm5703_fg_get_property(struct power_supply *psy,
 					    &val->intval);
 	case POWER_SUPPLY_PROP_CAPACITY:
 		return sm5703_fg_get_capacity(fg, &val->intval);
+	case POWER_SUPPLY_PROP_CHARGE_FULL:
+		return sm5703_fg_get_charge_full(psy, &val->intval);
+	case POWER_SUPPLY_PROP_CHARGE_NOW:
+		return sm5703_fg_get_charge_now(fg, psy, &val->intval);
 	case POWER_SUPPLY_PROP_HEALTH:
 	case POWER_SUPPLY_PROP_TEMP:
 	case POWER_SUPPLY_PROP_CHARGE_CONTROL_START_THRESHOLD:
@@ -212,6 +265,8 @@ static const enum power_supply_property sm5703_fg_props[] = {
 	POWER_SUPPLY_PROP_VOLTAGE_OCV,
 	POWER_SUPPLY_PROP_CURRENT_NOW,
 	POWER_SUPPLY_PROP_CAPACITY,
+	POWER_SUPPLY_PROP_CHARGE_FULL,
+	POWER_SUPPLY_PROP_CHARGE_NOW,
 	POWER_SUPPLY_PROP_HEALTH,
 	POWER_SUPPLY_PROP_TEMP,
 	POWER_SUPPLY_PROP_CHARGE_CONTROL_START_THRESHOLD,
