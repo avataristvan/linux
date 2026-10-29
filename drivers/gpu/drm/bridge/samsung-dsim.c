@@ -161,7 +161,6 @@
 #define DSIM_RX_DATA_FULL		BIT(25)
 #define DSIM_RX_DATA_EMPTY		BIT(24)
 #define DSIM_SFR_HEADER_FULL		BIT(23)
-#define DSIM_SFR_HEADER_EMPTY		BIT(22)
 #define DSIM_SFR_PAYLOAD_FULL		BIT(21)
 #define DSIM_SFR_PAYLOAD_EMPTY		BIT(20)
 #define DSIM_I80_HEADER_FULL		BIT(19)
@@ -476,6 +475,7 @@ static const struct samsung_dsim_driver_data exynos3_dsi_driver_data = {
 	.num_bits_resol = 11,
 	.video_mode_bit = 25,
 	.pll_stable_bit = 31,
+	.sfr_header_empty_bit = 22,
 	.esc_clken_bit = 28,
 	.byte_clken_bit = 24,
 	.tx_req_hsclk_bit = 31,
@@ -508,6 +508,7 @@ static const struct samsung_dsim_driver_data exynos4_dsi_driver_data = {
 	.num_bits_resol = 11,
 	.video_mode_bit = 25,
 	.pll_stable_bit = 31,
+	.sfr_header_empty_bit = 22,
 	.esc_clken_bit = 28,
 	.byte_clken_bit = 24,
 	.tx_req_hsclk_bit = 31,
@@ -538,6 +539,7 @@ static const struct samsung_dsim_driver_data exynos5_dsi_driver_data = {
 	.num_bits_resol = 11,
 	.video_mode_bit = 25,
 	.pll_stable_bit = 31,
+	.sfr_header_empty_bit = 22,
 	.esc_clken_bit = 28,
 	.byte_clken_bit = 24,
 	.tx_req_hsclk_bit = 31,
@@ -568,6 +570,7 @@ static const struct samsung_dsim_driver_data exynos5433_dsi_driver_data = {
 	.num_bits_resol = 12,
 	.video_mode_bit = 25,
 	.pll_stable_bit = 31,
+	.sfr_header_empty_bit = 22,
 	.esc_clken_bit = 28,
 	.byte_clken_bit = 24,
 	.tx_req_hsclk_bit = 31,
@@ -598,6 +601,7 @@ static const struct samsung_dsim_driver_data exynos5422_dsi_driver_data = {
 	.num_bits_resol = 12,
 	.video_mode_bit = 25,
 	.pll_stable_bit = 31,
+	.sfr_header_empty_bit = 22,
 	.esc_clken_bit = 28,
 	.byte_clken_bit = 24,
 	.tx_req_hsclk_bit = 31,
@@ -624,11 +628,12 @@ static const struct samsung_dsim_driver_data exynos7870_dsi_driver_data = {
 	.clk_data = exynos7870_clk_bulk_data,
 	.num_clks = ARRAY_SIZE(exynos7870_clk_bulk_data),
 	.max_freq = 1500,
-	.wait_for_hdr_fifo = 0,
+	.wait_for_hdr_fifo = 1,
 	.wait_for_reset = 1,
 	.num_bits_resol = 12,
 	.video_mode_bit = 18,
 	.pll_stable_bit = 24,
+	.sfr_header_empty_bit = 10,
 	.esc_clken_bit = 16,
 	.byte_clken_bit = 17,
 	.tx_req_hsclk_bit = 20,
@@ -659,6 +664,7 @@ static const struct samsung_dsim_driver_data imx8mm_dsi_driver_data = {
 	.num_bits_resol = 12,
 	.video_mode_bit = 25,
 	.pll_stable_bit = 31,
+	.sfr_header_empty_bit = 22,
 	.esc_clken_bit = 28,
 	.byte_clken_bit = 24,
 	.tx_req_hsclk_bit = 31,
@@ -1273,7 +1279,7 @@ static int samsung_dsim_wait_for_hdr_fifo(struct samsung_dsim *dsi)
 		u32 reg = samsung_dsim_read(dsi, DSIM_FIFOCTRL_REG);
 
 		if (!dsi->driver_data->has_broken_fifoctrl_emptyhdr) {
-			if (reg & DSIM_SFR_HEADER_EMPTY)
+			if (reg & BIT(dsi->driver_data->sfr_header_empty_bit))
 				return 0;
 		} else {
 			if (!(reg & DSIM_SFR_HEADER_FULL)) {
