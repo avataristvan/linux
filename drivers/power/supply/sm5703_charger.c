@@ -351,7 +351,8 @@ static void sm5703_chg_poll(struct work_struct *work)
 	if (changed)
 		power_supply_changed(chg->psy);
 
-	schedule_delayed_work(&chg->poll_work, msecs_to_jiffies(SM5703_POLL_MS));
+	queue_delayed_work(system_freezable_power_efficient_wq, &chg->poll_work,
+			   msecs_to_jiffies(SM5703_POLL_MS));
 }
 
 static int sm5703_chg_get_status(struct sm5703_charger *chg, int *val)
@@ -515,7 +516,7 @@ static int sm5703_chg_set_property(struct power_supply *psy,
 
 	/* A no-op once the stop action has disabled the work */
 	if (!ret)
-		mod_delayed_work(system_percpu_wq, &chg->poll_work, 0);
+		mod_delayed_work(system_freezable_power_efficient_wq, &chg->poll_work, 0);
 
 	return ret;
 }
@@ -711,7 +712,7 @@ static int sm5703_chg_probe(struct i2c_client *client)
 
 	dev_info(dev, "SM5703 charger, device ID 0x%02x\n", id);
 
-	schedule_delayed_work(&chg->poll_work, 0);
+	queue_delayed_work(system_freezable_power_efficient_wq, &chg->poll_work, 0);
 
 	return 0;
 }

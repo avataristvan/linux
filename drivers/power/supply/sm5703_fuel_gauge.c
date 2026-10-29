@@ -185,7 +185,8 @@ static void sm5703_fg_poll(struct work_struct *work)
 		power_supply_changed(fg->psy);
 	}
 
-	schedule_delayed_work(&fg->poll_work, msecs_to_jiffies(SM5703_FG_POLL_MS));
+	queue_delayed_work(system_freezable_power_efficient_wq, &fg->poll_work,
+			   msecs_to_jiffies(SM5703_FG_POLL_MS));
 }
 
 static int sm5703_fg_get_property(struct power_supply *psy,
@@ -365,7 +366,7 @@ static int sm5703_fg_probe(struct i2c_client *client)
 	if (ret)
 		return ret;
 
-	schedule_delayed_work(&fg->poll_work, 0);
+	queue_delayed_work(system_freezable_power_efficient_wq, &fg->poll_work, 0);
 
 	return 0;
 }
