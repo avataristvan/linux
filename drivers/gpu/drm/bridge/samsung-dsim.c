@@ -625,6 +625,7 @@ static const struct samsung_dsim_driver_data exynos7870_dsi_driver_data = {
 	.has_clklane_stop = 1,
 	.has_sfrctrl = 1,
 	.has_porch_in_pixels = 1,
+	.has_display_mode_on_init = 1,
 	.clk_data = exynos7870_clk_bulk_data,
 	.num_clks = ARRAY_SIZE(exynos7870_clk_bulk_data),
 	.max_freq = 1500,
@@ -1682,6 +1683,17 @@ static int samsung_dsim_init(struct samsung_dsim *dsi)
 	samsung_dsim_enable_clock(dsi);
 	samsung_dsim_set_phy_ctrl(dsi);
 	samsung_dsim_init_link(dsi);
+
+	/*
+	 * In video mode the Exynos7870 DSIM only sends command packets once
+	 * resolution, porches and stand-by are set; without them the first
+	 * packet header stays in the FIFO after a re-enable.
+	 */
+	if (driver_data->has_display_mode_on_init &&
+	    dsi->mode_flags & MIPI_DSI_MODE_VIDEO) {
+		samsung_dsim_set_display_mode(dsi);
+		samsung_dsim_set_display_enable(dsi, true);
+	}
 
 	dsi->state |= DSIM_STATE_INITIALIZED;
 
