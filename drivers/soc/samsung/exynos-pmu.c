@@ -153,8 +153,30 @@ static struct notifier_block exynos7870_cpu_pm_notifier = {
 	.notifier_call = exynos7870_cpu_pm_notify_callback,
 };
 
+/*
+ * The bootloader leaves CPU0's option register with USE_STANDBYWFE set and
+ * USE_SMPEN clear (the other CPUs have USE_SMPEN set). With that value CPU0
+ * hangs in C2 within a minute of eMMC and WiFi interrupt load; with the
+ * options the vendor kernel programs at boot it does not. Program all CPUs
+ * that way.
+ */
+static void exynos7870_pmu_init(void)
+{
+	unsigned int cpu;
+	u32 val;
+
+	for (cpu = 0; cpu < EXYNOS7870_NR_CPUS; cpu++) {
+		val = pmu_raw_readl(EXYNOS_ARM_CORE_OPTION(cpu));
+		val |= EXYNOS7870_OPTION_USE_SMPEN | EXYNOS5_OPTION_USE_STANDBYWFI |
+		       EXYNOS7870_OPTION_USE_MEMPWRDOWN_FEEDBACK | EXYNOS5_USE_SC_COUNTER;
+		val &= ~(EXYNOS5_OPTION_USE_STANDBYWFE | EXYNOS5_USE_SC_FEEDBACK);
+		pmu_raw_writel(val, EXYNOS_ARM_CORE_OPTION(cpu));
+	}
+}
+
 static const struct exynos_pmu_data exynos7870_pmu_data = {
 	.cpu_pm_nb = &exynos7870_cpu_pm_notifier,
+	.pmu_init = exynos7870_pmu_init,
 };
 
 /*
