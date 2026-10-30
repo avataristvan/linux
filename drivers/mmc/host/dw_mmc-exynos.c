@@ -640,6 +640,20 @@ static const struct dw_mci_drv_data exynos_drv_data = {
 	.prepare_hs400_tuning	= dw_mci_exynos_prepare_hs400_tuning,
 };
 
+/* Exynos7870 uses the extended data timeout format of TMOUT */
+static const struct dw_mci_drv_data exynos7870_drv_data = {
+	.caps			= exynos_dwmmc_caps,
+	.num_caps		= ARRAY_SIZE(exynos_dwmmc_caps),
+	.common_caps		= MMC_CAP_CMD23,
+	.init			= dw_mci_exynos_priv_init,
+	.set_ios		= dw_mci_exynos_set_ios,
+	.parse_dt		= dw_mci_exynos_parse_dt,
+	.execute_tuning		= dw_mci_exynos_execute_tuning,
+	.prepare_hs400_tuning	= dw_mci_exynos_prepare_hs400_tuning,
+	.set_data_timeout	= dw_mci_exynos_set_data_timeout,
+	.get_drto_clks		= dw_mci_exynos_get_drto_clks,
+};
+
 static const struct dw_mci_drv_data artpec_drv_data = {
 	.common_caps		= MMC_CAP_CMD23,
 	.init			= dw_mci_exynos_priv_init,
@@ -664,9 +678,9 @@ static const struct of_device_id dw_mci_exynos_match[] = {
 	{ .compatible = "samsung,exynos7-dw-mshc-smu",
 			.data = &exynos_drv_data, },
 	{ .compatible = "samsung,exynos7870-dw-mshc",
-			.data = &exynos_drv_data, },
+			.data = &exynos7870_drv_data, },
 	{ .compatible = "samsung,exynos7870-dw-mshc-smu",
-			.data = &exynos_drv_data, },
+			.data = &exynos7870_drv_data, },
 	{ .compatible = "axis,artpec8-dw-mshc",
 			.data = &artpec_drv_data, },
 	{},
