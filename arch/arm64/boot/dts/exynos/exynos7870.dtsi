@@ -70,12 +70,27 @@
 			};
 		};
 
+		idle-states {
+			entry-method = "psci";
+
+			cpu_sleep: cpu-sleep {
+				compatible = "arm,idle-state";
+				idle-state-name = "c2";
+				local-timer-stop;
+				arm,psci-suspend-param = <0x10000>;
+				entry-latency-us = <35>;
+				exit-latency-us = <90>;
+				min-residency-us = <750>;
+			};
+		};
+
 		cpu0: cpu@0 {
 			device_type = "cpu";
 			compatible = "arm,cortex-a53";
 			reg = <0x0>;
 			clocks = <&cmu_cpucl0 CLK_CLUSTER0_SCLK>;
 			enable-method = "psci";
+			cpu-idle-states = <&cpu_sleep>;
 			#cooling-cells = <2>;
 		};
 
@@ -85,6 +100,7 @@
 			reg = <0x1>;
 			clocks = <&cmu_cpucl0 CLK_CLUSTER0_SCLK>;
 			enable-method = "psci";
+			cpu-idle-states = <&cpu_sleep>;
 			#cooling-cells = <2>;
 		};
 
@@ -94,6 +110,7 @@
 			reg = <0x2>;
 			clocks = <&cmu_cpucl0 CLK_CLUSTER0_SCLK>;
 			enable-method = "psci";
+			cpu-idle-states = <&cpu_sleep>;
 			#cooling-cells = <2>;
 		};
 
@@ -103,6 +120,7 @@
 			reg = <0x3>;
 			clocks = <&cmu_cpucl0 CLK_CLUSTER0_SCLK>;
 			enable-method = "psci";
+			cpu-idle-states = <&cpu_sleep>;
 			#cooling-cells = <2>;
 		};
 
@@ -112,6 +130,7 @@
 			reg = <0x100>;
 			clocks = <&cmu_cpucl1 CLK_CLUSTER1_SCLK>;
 			enable-method = "psci";
+			cpu-idle-states = <&cpu_sleep>;
 			#cooling-cells = <2>;
 		};
 
@@ -121,6 +140,7 @@
 			reg = <0x101>;
 			clocks = <&cmu_cpucl1 CLK_CLUSTER1_SCLK>;
 			enable-method = "psci";
+			cpu-idle-states = <&cpu_sleep>;
 			#cooling-cells = <2>;
 		};
 
@@ -130,6 +150,7 @@
 			reg = <0x102>;
 			clocks = <&cmu_cpucl1 CLK_CLUSTER1_SCLK>;
 			enable-method = "psci";
+			cpu-idle-states = <&cpu_sleep>;
 			#cooling-cells = <2>;
 		};
 
@@ -139,6 +160,7 @@
 			reg = <0x103>;
 			clocks = <&cmu_cpucl1 CLK_CLUSTER1_SCLK>;
 			enable-method = "psci";
+			cpu-idle-states = <&cpu_sleep>;
 			#cooling-cells = <2>;
 		};
 	};
