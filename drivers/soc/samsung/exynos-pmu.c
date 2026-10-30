@@ -19,6 +19,8 @@
 #include <linux/reboot.h>
 #include <linux/regmap.h>
 
+#include <asm/cputype.h>
+
 #include <linux/soc/samsung/exynos-regs-pmu.h>
 #include <linux/soc/samsung/exynos-pmu.h>
 
@@ -122,6 +124,40 @@ static const struct regmap_config regmap_pmu_intr = {
 };
 
 /*
+ * The Exynos7870 firmware does not power down a CPU on PSCI CPU_SUSPEND unless
+ * the kernel clears the CPU's local power configuration first; without it the
+ * CPU never returns from the idle state. Each CPU only touches its own
+ * register, with IRQs disabled, so no locking is needed.
+ */
+static int exynos7870_cpu_pm_notify_callback(struct notifier_block *self,
+					     unsigned long action, void *v)
+{
+	u64 mpidr = read_cpuid_mpidr();
+	u32 reg = EXYNOS_ARM_CORE_CONFIGURATION(MPIDR_AFFINITY_LEVEL(mpidr, 1) * 4 +
+						MPIDR_AFFINITY_LEVEL(mpidr, 0));
+
+	switch (action) {
+	case CPU_PM_ENTER:
+		pmu_raw_writel(pmu_raw_readl(reg) & ~EXYNOS7870_CPU_LOCAL_PWR_CFG, reg);
+		break;
+	case CPU_PM_ENTER_FAILED:
+	case CPU_PM_EXIT:
+		pmu_raw_writel(pmu_raw_readl(reg) | EXYNOS7870_CPU_LOCAL_PWR_CFG, reg);
+		break;
+	}
+
+	return NOTIFY_OK;
+}
+
+static struct notifier_block exynos7870_cpu_pm_notifier = {
+	.notifier_call = exynos7870_cpu_pm_notify_callback,
+};
+
+static const struct exynos_pmu_data exynos7870_pmu_data = {
+	.cpu_pm_nb = &exynos7870_cpu_pm_notifier,
+};
+
+/*
  * PMU platform driver and devicetree bindings.
  */
 static const struct of_device_id exynos_pmu_of_device_ids[] = {
@@ -152,6 +188,9 @@ static const struct of_device_id exynos_pmu_of_device_ids[] = {
 		.compatible = "samsung,exynos5433-pmu",
 	}, {
 		.compatible = "samsung,exynos7-pmu",
+	}, {
+		.compatible = "samsung,exynos7870-pmu",
+		.data = &exynos7870_pmu_data,
 	}, {
 		.compatible = "samsung,exynos850-pmu",
 	},
@@ -586,6 +625,15 @@ static int exynos_pmu_probe(struct platform_device *pdev)
 			return ret;
 	}
 
+	if (pmu_context->pmu_data && pmu_context->pmu_data->cpu_pm_nb) {
+		ret = cpu_pm_register_notifier(pmu_context->pmu_data->cpu_pm_nb);
+		if (ret) {
+			if (pmu_context->pmu_data->pmu_cpuhp)
+				destroy_cpuhp_and_cpuidle();
+			return ret;
+		}
+	}
+
 	if (pmu_context->pmu_data && pmu_context->pmu_data->pmu_init)
 		pmu_context->pmu_data->pmu_init();
 
@@ -596,6 +644,9 @@ static int exynos_pmu_probe(struct platform_device *pdev)
 	if (ret) {
 		if (pmu_context->pmu_data && pmu_context->pmu_data->pmu_cpuhp)
 			destroy_cpuhp_and_cpuidle();
+
+		if (pmu_context->pmu_data && pmu_context->pmu_data->cpu_pm_nb)
+			cpu_pm_unregister_notifier(pmu_context->pmu_data->cpu_pm_nb);
 
 		return ret;
 	}
