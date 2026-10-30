@@ -1444,9 +1444,21 @@ static const unsigned long g3d_clk_regs[] __initconst = {
 	CLK_CON_GAT_G3D_SYSREG_PCLK,
 };
 
+/* G3D_PLL rates from the ECT pll_list of an SM-T585 */
+static const struct samsung_pll_rate_table g3d_pll_rates[] __initconst = {
+	PLL_35XX_RATE(26 * MHZ, 1001000000U, 154, 4, 0),
+	PLL_35XX_RATE(26 * MHZ, 845000000U, 130, 4, 0),
+	PLL_35XX_RATE(26 * MHZ, 728000000U, 112, 4, 0),
+	PLL_35XX_RATE(26 * MHZ, 676000000U, 104, 4, 0),
+	PLL_35XX_RATE(26 * MHZ, 545000000U, 545, 13, 1),
+	PLL_35XX_RATE(26 * MHZ, 450000000U, 450, 13, 1),
+	PLL_35XX_RATE(26 * MHZ, 343000000U, 343, 13, 1),
+	{ /* sentinel */ }
+};
+
 static const struct samsung_pll_clock g3d_pll_clks[] __initconst = {
 	PLL(pll_1417x, CLK_FOUT_G3D_PLL, "fout_g3d_pll", "oscclk",
-	    PLL_LOCKTIME_G3D_PLL, PLL_CON0_G3D_PLL, NULL),
+	    PLL_LOCKTIME_G3D_PLL, PLL_CON0_G3D_PLL, g3d_pll_rates),
 };
 
 /* List of parent clocks for muxes in CMU_G3D */
@@ -1457,14 +1469,15 @@ PNAME(mout_g3d_p)		= { "gout_g3d_mux_pll_con",
 static const struct samsung_mux_clock g3d_mux_clks[] __initconst = {
 	MUX(CLK_MOUT_G3D_SWITCH_USER, "mout_g3d_switch_user",
 	    mout_g3d_switch_user_p, CLK_CON_MUX_G3D_SWITCH_USER, 12, 1),
-	MUX(CLK_MOUT_G3D, "mout_g3d", mout_g3d_p, CLK_CON_MUX_G3D, 12, 1),
+	MUX_F(CLK_MOUT_G3D, "mout_g3d", mout_g3d_p, CLK_CON_MUX_G3D, 12, 1,
+	      CLK_SET_RATE_PARENT | CLK_SET_RATE_NO_REPARENT, 0),
 };
 
 static const struct samsung_div_clock g3d_div_clks[] __initconst = {
 	DIV(CLK_DOUT_G3D_APB, "dout_g3d_apb", "dout_g3d_bus",
 	    CLK_CON_DIV_G3D_APB, 0, 3),
-	DIV(CLK_DOUT_G3D_BUS, "dout_g3d_bus", "gout_g3d_mux",
-	    CLK_CON_DIV_G3D_BUS, 0, 3),
+	DIV_F(CLK_DOUT_G3D_BUS, "dout_g3d_bus", "gout_g3d_mux",
+	      CLK_CON_DIV_G3D_BUS, 0, 3, CLK_SET_RATE_PARENT, 0),
 };
 
 static const struct samsung_gate_clock g3d_gate_clks[] __initconst = {
