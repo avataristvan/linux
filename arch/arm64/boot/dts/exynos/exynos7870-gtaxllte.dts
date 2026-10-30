@@ -380,6 +380,50 @@
 		};
 	};
 
+	/*
+	 * The GPU shares BUCK2 with MIF, INT, DISP and CAM, which run at the
+	 * bootloader's clocks and need the bootloader's 775 mV; no level may go
+	 * below that. Above it the voltages are this chip's (ASV group 7, ECT).
+	 */
+	opp_table_gpu: opp-table-gpu {
+		compatible = "operating-points-v2";
+
+		opp-343000000 {
+			opp-hz = /bits/ 64 <343000000>;
+			opp-microvolt = <775000 775000 1300000>;
+		};
+
+		opp-450000000 {
+			opp-hz = /bits/ 64 <450000000>;
+			opp-microvolt = <775000 775000 1300000>;
+		};
+
+		opp-545000000 {
+			opp-hz = /bits/ 64 <545000000>;
+			opp-microvolt = <775000 775000 1300000>;
+		};
+
+		opp-676000000 {
+			opp-hz = /bits/ 64 <676000000>;
+			opp-microvolt = <775000 775000 1300000>;
+		};
+
+		opp-728000000 {
+			opp-hz = /bits/ 64 <728000000>;
+			opp-microvolt = <775000 775000 1300000>;
+		};
+
+		opp-845000000 {
+			opp-hz = /bits/ 64 <845000000>;
+			opp-microvolt = <818750 818750 1300000>;
+		};
+
+		opp-1001000000 {
+			opp-hz = /bits/ 64 <1001000000>;
+			opp-microvolt = <912500 912500 1300000>;
+		};
+	};
+
 	/* WLAN_EN, mmc1 */
 	pwrseq_mmc1: pwrseq-mmc1 {
 		compatible = "mmc-pwrseq-simple";
@@ -540,18 +584,22 @@
 
 /*
  * Cooling states index the OPP tables from the top: state 4 = 1248 MHz,
- * state 11 = 546 MHz, the downstream clip levels at 81 and 91 C.
+ * state 11 = 546 MHz, the downstream clip levels at 81 and 91 C. For the
+ * GPU state 1 = 845 MHz and state 4 = 545 MHz, as the downstream GPU
+ * throttling steps.
  */
 &soc_thermal {
 	cooling-maps {
 		map0 {
 			trip = <&soc_alert0>;
-			cooling-device = <&cpu0 0 4>, <&cpu4 0 4>;
+			cooling-device = <&cpu0 0 4>, <&cpu4 0 4>,
+					 <&gpu 0 1>;
 		};
 
 		map1 {
 			trip = <&soc_alert1>;
-			cooling-device = <&cpu0 4 11>, <&cpu4 4 11>;
+			cooling-device = <&cpu0 4 11>, <&cpu4 4 11>,
+					 <&gpu 1 4>;
 		};
 	};
 };
@@ -582,6 +630,10 @@
 };
 
 &gpu {
+	#cooling-cells = <2>;
+	mali-supply = <&vdd_buck2>;
+	operating-points-v2 = <&opp_table_gpu>;
+
 	status = "okay";
 };
 
@@ -612,7 +664,8 @@
 
 			vdd_buck2: buck2 {
 				regulator-name = "vdd_buck2";
-				regulator-min-microvolt = <500000>;
+				/* MIF/INT floor, see opp-table-gpu */
+				regulator-min-microvolt = <775000>;
 				regulator-max-microvolt = <1300000>;
 				regulator-ramp-delay = <12000>;
 				regulator-boot-on;
