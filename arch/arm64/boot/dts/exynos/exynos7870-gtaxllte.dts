@@ -1159,6 +1159,15 @@
 	status = "okay";
 };
 
+/*
+ * DECON scans out from contiguous CMA buffers in bypass; without this the
+ * DECON probe waits for an IOMMU that never comes until the deferred probe
+ * timeout, and GDM can start before the panel exists.
+ */
+&sysmmu_decon {
+	status = "disabled";
+};
+
 &usbdrd {
 	vdd33-supply = <&vdd_ldo8>;
 
