@@ -28,9 +28,24 @@ static unsigned int codec_bfs;
 module_param(codec_bfs, uint, 0644);
 MODULE_PARM_DESC(codec_bfs, "codec PLL1 source: 0 = MCLK, 32/64 = BCLK1 ratio");
 
-static bool jack_switch = true;
-module_param(jack_switch, bool, 0444);
-MODULE_PARM_DESC(jack_switch, "switch outputs and mics on jack insertion (else report only)");
+/*
+ * Advertise only what hw_params can clock: 48 kHz, and 16-bit samples since
+ * the I2S frame is 32 BCLKs (2 x 16). Otherwise PipeWire picks S24 and the
+ * I2S trigger fails ("512-RFS not supported for 24-blc").
+ */
+static int gtaxllte_startup(struct snd_pcm_substream *substream)
+{
+	struct snd_pcm_runtime *runtime = substream->runtime;
+	int ret;
+
+	ret = snd_pcm_hw_constraint_mask64(runtime, SNDRV_PCM_HW_PARAM_FORMAT,
+					   SNDRV_PCM_FMTBIT_S16_LE);
+	if (ret < 0)
+		return ret;
+
+	return snd_pcm_hw_constraint_single(runtime, SNDRV_PCM_HW_PARAM_RATE,
+					    48000);
+}
 
 static int gtaxllte_hw_params(struct snd_pcm_substream *substream,
 			      struct snd_pcm_hw_params *params)
@@ -103,14 +118,17 @@ static int gtaxllte_hw_params(struct snd_pcm_substream *substream,
  * low). 3-/4-pole and the buttons need the ADC, which mainline lacks for the
  * 7870, so a plug is taken as a headset: with plain headphones the headset
  * mic just records silence.
+ *
+ * Only the jack's own pins are listed: Speaker and Main Mic are left to
+ * userspace (PipeWire/UCM). Inverted pins would get jack controls that read
+ * "unplugged" (soc-jack ignores .invert there), so PipeWire would treat the
+ * speaker as unavailable and route to the headphone path.
  */
 static struct snd_soc_jack gtaxllte_jack;
 
 static struct snd_soc_jack_pin gtaxllte_jack_pins[] = {
 	{ .pin = "Headphone", .mask = SND_JACK_HEADPHONE },
 	{ .pin = "Headset Mic", .mask = SND_JACK_MICROPHONE },
-	{ .pin = "Speaker", .mask = SND_JACK_HEADPHONE, .invert = 1 },
-	{ .pin = "Main Mic", .mask = SND_JACK_MICROPHONE, .invert = 1 },
 };
 
 static struct snd_soc_jack_gpio gtaxllte_jack_gpio = {
@@ -121,25 +139,12 @@ static struct snd_soc_jack_gpio gtaxllte_jack_gpio = {
 
 static int gtaxllte_jack_init(struct snd_soc_card *card)
 {
-	struct snd_soc_dapm_context *dapm = snd_soc_card_to_dapm(card);
 	int ret;
 
-	if (jack_switch) {
-		ret = snd_soc_card_jack_new_pins(card, "Headset Jack",
-						 SND_JACK_HEADSET, &gtaxllte_jack,
-						 gtaxllte_jack_pins,
-						 ARRAY_SIZE(gtaxllte_jack_pins));
-	} else {
-		/* Headphones and main mic; the pin switches pick the rest */
-		ret = snd_soc_dapm_disable_pin(dapm, "Headset Mic");
-		if (ret)
-			return ret;
-		ret = snd_soc_dapm_disable_pin(dapm, "Speaker");
-		if (ret)
-			return ret;
-		ret = snd_soc_card_jack_new(card, "Headset Jack",
-					    SND_JACK_HEADSET, &gtaxllte_jack);
-	}
+	ret = snd_soc_card_jack_new_pins(card, "Headset Jack",
+					 SND_JACK_HEADSET, &gtaxllte_jack,
+					 gtaxllte_jack_pins,
+					 ARRAY_SIZE(gtaxllte_jack_pins));
 	if (ret)
 		return ret;
 
@@ -258,6 +263,7 @@ static int gtaxllte_set_defaults(struct snd_soc_card *card)
 }
 
 static const struct snd_soc_ops gtaxllte_ops = {
+	.startup = gtaxllte_startup,
 	.hw_params = gtaxllte_hw_params,
 };
 
