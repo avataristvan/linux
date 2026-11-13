@@ -9,6 +9,7 @@
 
 #include <linux/clk.h>
 #include <linux/component.h>
+#include <linux/iopoll.h>
 #include <linux/kernel.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
@@ -578,6 +579,36 @@ static void decon_atomic_enable(struct exynos_drm_crtc *crtc)
 	decon_commit(ctx->crtc);
 }
 
+/*
+ * Stop the video output at the end of the frame and reset DECON before its
+ * clocks go off. The window disables above are shadowed and never latch
+ * once the clocks are gone, so without this DECON resumes scanning the old
+ * buffer as soon as it is clocked again; through the SysMMU that buffer may
+ * be unmapped by then (page fault).
+ */
+static void decon_stop(struct decon_context *ctx)
+{
+	u32 val = readl(ctx->regs + VIDCON0);
+
+	if (val & VIDCON0_DECON_STOP_STATUS) {
+		writel(val & ~VIDCON0_ENVID_F, ctx->regs + VIDCON0);
+
+		val = readl(ctx->regs + DECON_UPDATE);
+		writel(val | DECON_UPDATE_STANDALONE_F,
+		       ctx->regs + DECON_UPDATE);
+
+		if (readl_poll_timeout(ctx->regs + VIDCON0, val,
+				       !(val & VIDCON0_DECON_STOP_STATUS),
+				       10, 20000))
+			DRM_DEV_ERROR(ctx->dev, "timeout stopping DECON\n");
+	}
+
+	writel(VIDCON0_SWRESET, ctx->regs + VIDCON0);
+	if (readl_poll_timeout(ctx->regs + VIDCON0, val,
+			       !(val & VIDCON0_SWRESET), 10, 20000))
+		DRM_DEV_ERROR(ctx->dev, "timeout resetting DECON\n");
+}
+
 static void decon_atomic_disable(struct exynos_drm_crtc *crtc)
 {
 	struct decon_context *ctx = crtc->ctx;
@@ -590,6 +621,8 @@ static void decon_atomic_disable(struct exynos_drm_crtc *crtc)
 	 */
 	for (i = 0; i < WINDOWS_NR; i++)
 		decon_disable_plane(crtc, &ctx->planes[i]);
+
+	decon_stop(ctx);
 
 	pm_runtime_put_sync(ctx->dev);
 }
